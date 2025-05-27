@@ -1,116 +1,72 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>AI Voice Assistant</title>
-  <style>
-    body { font-family: sans-serif; background: #111; color: #eee; padding: 2rem; }
-    .log { background: #222; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; max-height: 300px; overflow-y: auto; }
-    .log div { margin: 0.5rem 0; }
-    button { margin-top: 1rem; padding: 0.6rem 1.2rem; background: #00ffc8; border: none; border-radius: 5px; cursor: pointer; }
-    #formSection { margin-top: 2rem; }
-    pre { background: #1e1e1e; padding: 1rem; border-radius: 8px; }
-  </style>
+  <title>Voice Assistant</title>
 </head>
 <body>
-  <h1>🧠 AI Voice Assistant — Merchant Form</h1>
-  <div class="log" id="chatLog"></div>
-
-  <div id="formSection" style="display: none;">
-    <h3>📝 Extracted Form Data</h3>
-    <pre id="formData"></pre>
-    <button onclick="confirmAndGenerate()">✅ Confirm & Generate PDF</button>
-    <a id="downloadLink" href="/download" download style="display: none;">📄 Download Filled PDF</a>
-  </div>
-
-  <audio id="assistantAudio" autoplay></audio>
+  <h1>🎙️ Talk to Assistant</h1>
+  <div id="log">Initializing assistant...</div>
+  <audio id="replyAudio" controls style="margin-top: 20px;"></audio>
 
   <script>
-    const chatLog = document.getElementById('chatLog');
-    const audioPlayer = document.getElementById('assistantAudio');
+    let mediaRecorder;
+    let audioChunks = [];
 
-    function logMessage(role, text) {
-      const entry = document.createElement('div');
-      entry.innerHTML = `<strong>${role}</strong>: ${text}`;
-      chatLog.appendChild(entry);
-      chatLog.scrollTop = chatLog.scrollHeight;
-
-      if (text.includes('END OF CONVERSATION')) {
-        checkForm();
+    async function requestMicAndStart() {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        startRecording(stream);
+      } catch (err) {
+        document.getElementById("log").innerHTML += `<div>❌ Microphone access denied. Please enable it to continue.</div>`;
       }
     }
 
-    async function fetchInitialMessage() {
-      const res = await fetch('/initial-message');
-      const data = await res.json();
-      if (data.assistant_text) logMessage('🤖', data.assistant_text);
-      if (data.assistant_audio_base64) {
-        audioPlayer.src = `data:audio/mp3;base64,${data.assistant_audio_base64}`;
-      }
-    }
+    function startRecording(stream) {
+      mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+      audioChunks = [];
 
-    async function startMicStream() {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
-      let chunks = [];
+      mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
 
-      mediaRecorder.ondataavailable = e => chunks.push(e.data);
       mediaRecorder.onstop = async () => {
-        const blob = new Blob(chunks, { type: 'audio/wav' });
-        const reader = new FileReader();
-        reader.onloadend = async () => {
-          const base64Audio = reader.result;
-          const res = await fetch('/voice-stream', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ audio_base64: base64Audio })
-          });
-          const data = await res.json();
+        const blob = new Blob(audioChunks, { type: 'audio/webm' });
+        const formData = new FormData();
+        formData.append("audio", blob, "recording.webm");
 
-          if (data.user_text) logMessage('👤', data.user_text);
-          if (data.assistant_text) logMessage('🤖', data.assistant_text);
-          if (data.assistant_audio_base64) {
-            audioPlayer.src = `data:audio/mp3;base64,${data.assistant_audio_base64}`;
-          }
+        const response = await fetch("/voice-stream", {
+          method: "POST",
+          body: formData
+        });
+        const result = await response.json();
 
-          // continue listening
-          chunks = [];
-          mediaRecorder.start();
-          setTimeout(() => mediaRecorder.stop(), 6000);
-        };
-        reader.readAsDataURL(blob);
+        document.getElementById("log").innerHTML += `<div>👤 ${result.user_text}</div>`;
+        document.getElementById("log").innerHTML += `<div>🤖 ${result.assistant_text}</div>`;
+
+        if (result.audio_base64) {
+          const audio = new Audio("data:audio/mp3;base64," + result.audio_base64);
+          audio.play();
+        }
+
+        if (!result.end_conversation) {
+          setTimeout(() => startRecording(stream), 1000);
+        }
       };
 
       mediaRecorder.start();
-      setTimeout(() => mediaRecorder.stop(), 6000);
+      setTimeout(() => mediaRecorder.stop(), 5000); // 5 seconds chunk
     }
 
-    async function checkForm() {
-      const res = await fetch('/form-data');
-      if (res.ok) {
-        const data = await res.json();
-        document.getElementById('formData').textContent = JSON.stringify(data, null, 2);
-        document.getElementById('formSection').style.display = 'block';
-      }
-    }
-
-    async function confirmAndGenerate() {
-      const res = await fetch('/confirm', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirmed: true })
-      });
-      const result = await res.json();
-      if (result.status === 'filled') {
-        document.getElementById('downloadLink').style.display = 'inline-block';
-      }
-    }
-
-    // On page load: greet + start mic
     window.onload = async () => {
-      await fetchInitialMessage();
-      startMicStream();
+      const res = await fetch("/initial-message");
+      const msg = await res.text();
+      document.getElementById("log").innerHTML += `<div>🤖 ${msg}</div>`;
+
+      const audioRes = await fetch("/initial-audio");
+      const audioBase64 = await audioRes.text();
+      const audio = new Audio("data:audio/mp3;base64," + audioBase64);
+      audio.play();
+
+      setTimeout(requestMicAndStart, 3000); // wait for greeting to finish
     };
   </script>
 </body>
