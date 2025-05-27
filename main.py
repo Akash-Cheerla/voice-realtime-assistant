@@ -1,4 +1,4 @@
-# main.py - FastAPI backend with OpenAI Whisper API + ElevenLabs + Debug Logging
+# main.py — final version with ElevenLabs, Whisper API, and initial assistant response
 
 import os
 import json
@@ -17,16 +17,14 @@ from elevenlabs.client import ElevenLabs
 from realtime_assistant import process_transcribed_text, form_data, conversation_history
 from fill_pdf_logic import fill_pdf
 
-# Initialize API keys
+# Initialize OpenAI and ElevenLabs
 openai.api_key = os.getenv("OPENAI_API_KEY")
 eleven_client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
-# FastAPI setup
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# Request model
 class AudioInput(BaseModel):
     audio_base64: str
 
@@ -34,16 +32,33 @@ class AudioInput(BaseModel):
 async def index(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
+@app.get("/initial-message")
+async def initial_message():
+    try:
+        initial_text = await process_transcribed_text("[start]")
+        audio_reply = eleven_client.text_to_speech.convert(
+            voice_id="EXAVITQu4vr4xnSDxMaL",
+            model_id="eleven_monolingual_v1",
+            text=initial_text
+        )
+        audio_bytes = b"".join(audio_reply)
+        audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+        return JSONResponse({
+            "assistant_text": initial_text,
+            "assistant_audio_base64": audio_base64
+        })
+    except Exception as e:
+        traceback.print_exc()
+        return JSONResponse({"error": str(e)}, status_code=500)
+
 @app.post("/voice-stream")
 async def voice_stream(audio: AudioInput):
     try:
-        # Step 1: Save base64 audio to temp WAV file
         audio_bytes = base64.b64decode(audio.audio_base64.split(",")[-1])
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
             temp_audio.write(audio_bytes)
             temp_audio_path = temp_audio.name
 
-        # Step 2: Transcribe audio with OpenAI Whisper API
         with open(temp_audio_path, "rb") as audio_file:
             result = openai.Audio.transcribe("whisper-1", audio_file)
         user_text = result["text"].strip()
@@ -52,13 +67,13 @@ async def voice_stream(audio: AudioInput):
         assistant_text = await process_transcribed_text(user_text)
         print(f"🤖 ASSISTANT REPLY: {assistant_text}")
 
-        # Step 3: Generate assistant voice reply
         audio_reply = eleven_client.text_to_speech.convert(
-            voice_id="EXAVITQu4vr4xnSDxMaL",  # Rachel
+            voice_id="EXAVITQu4vr4xnSDxMaL",
             model_id="eleven_monolingual_v1",
             text=assistant_text
         )
-        audio_base64 = base64.b64encode(audio_reply).decode("utf-8")
+        audio_bytes = b"".join(audio_reply)
+        audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
 
         return JSONResponse({
             "user_text": user_text,
