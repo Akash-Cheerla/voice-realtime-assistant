@@ -53,10 +53,10 @@ async def voice_stream(audio: AudioInput):
         print(f"🤖 ASSISTANT REPLY: {assistant_text}")
 
         # Step 3: Generate assistant voice reply
-        audio_reply = eleven_client.generate(
-            text=assistant_text,
-            voice="Rachel",
-            model="eleven_monolingual_v1"
+        audio_reply = eleven_client.text_to_speech.convert(
+            voice_id="EXAVITQu4vr4xnSDxMaL",  # Rachel
+            model_id="eleven_monolingual_v1",
+            text=assistant_text
         )
         audio_base64 = base64.b64encode(audio_reply).decode("utf-8")
 
