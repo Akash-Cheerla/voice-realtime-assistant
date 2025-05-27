@@ -3,11 +3,58 @@
 <head>
   <meta charset="UTF-8">
   <title>Voice Assistant</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 0;
+      padding: 20px;
+      background: #f4f4f4;
+    }
+    #container {
+      max-width: 600px;
+      margin: auto;
+      background: white;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.1);
+    }
+    h1 {
+      text-align: center;
+    }
+    #log {
+      margin-top: 20px;
+      padding: 10px;
+      background: #f9f9f9;
+      border-radius: 8px;
+      max-height: 400px;
+      overflow-y: auto;
+    }
+    .user {
+      text-align: right;
+      background: #dcf8c6;
+      margin: 5px;
+      padding: 10px;
+      border-radius: 10px;
+    }
+    .assistant {
+      text-align: left;
+      background: #e6ecf0;
+      margin: 5px;
+      padding: 10px;
+      border-radius: 10px;
+    }
+    audio {
+      display: block;
+      margin: 20px auto 0;
+    }
+  </style>
 </head>
 <body>
-  <h1>🎙️ Talk to Assistant</h1>
-  <div id="log">Initializing assistant...</div>
-  <audio id="replyAudio" controls style="margin-top: 20px;"></audio>
+  <div id="container">
+    <h1>🎙️ Talk to Assistant</h1>
+    <div id="log">Initializing assistant...</div>
+    <audio id="replyAudio" controls></audio>
+  </div>
 
   <script>
     let mediaRecorder;
@@ -18,7 +65,7 @@
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         startRecording(stream);
       } catch (err) {
-        document.getElementById("log").innerHTML += `<div>❌ Microphone access denied. Please enable it to continue.</div>`;
+        document.getElementById("log").innerHTML += `<div class='assistant'>❌ Microphone access denied. Please enable it to continue.</div>`;
       }
     }
 
@@ -39,8 +86,8 @@
         });
         const result = await response.json();
 
-        document.getElementById("log").innerHTML += `<div>👤 ${result.user_text}</div>`;
-        document.getElementById("log").innerHTML += `<div>🤖 ${result.assistant_text}</div>`;
+        document.getElementById("log").innerHTML += `<div class='user'>👤 ${result.user_text}</div>`;
+        document.getElementById("log").innerHTML += `<div class='assistant'>🤖 ${result.assistant_text}</div>`;
 
         if (result.audio_base64) {
           const audio = new Audio("data:audio/mp3;base64," + result.audio_base64);
@@ -59,7 +106,7 @@
     window.onload = async () => {
       const res = await fetch("/initial-message");
       const msg = await res.text();
-      document.getElementById("log").innerHTML += `<div>🤖 ${msg}</div>`;
+      document.getElementById("log").innerHTML = `<div class='assistant'>🤖 ${msg}</div>`;
 
       const audioRes = await fetch("/initial-audio");
       const audioBase64 = await audioRes.text();
