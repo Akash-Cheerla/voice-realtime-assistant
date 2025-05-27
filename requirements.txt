@@ -5,6 +5,6 @@ PyPDF2
 python-multipart
 aiofiles
 PyMuPDF>=1.23.0
-openai
 elevenlabs
 jinja2
+openai==0.28.1
