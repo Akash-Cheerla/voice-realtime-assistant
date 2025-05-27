@@ -7,4 +7,4 @@ aiofiles
 PyMuPDF>=1.23.0
 elevenlabs
 jinja2
-openai
+openai==0.28.1
