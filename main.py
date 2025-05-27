@@ -1,4 +1,4 @@
-# main.py — final version with ElevenLabs, Whisper API, and initial assistant response
+# main.py — updated with forced Whisper language and cleaned assistant
 
 import os
 import json
@@ -60,7 +60,11 @@ async def voice_stream(audio: AudioInput):
             temp_audio_path = temp_audio.name
 
         with open(temp_audio_path, "rb") as audio_file:
-            result = openai.Audio.transcribe("whisper-1", audio_file)
+            result = openai.Audio.transcribe(
+                model="whisper-1",
+                file=audio_file,
+                language="en"  # Force English
+            )
         user_text = result["text"].strip()
 
         print(f"\n🎙️ USER SAID: {user_text}")
