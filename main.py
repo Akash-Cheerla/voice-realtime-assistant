@@ -1,4 +1,4 @@
-# main.py - FastAPI backend with ElevenLabs TTS and Whisper STT
+# main.py - FastAPI backend with Whisper STT and ElevenLabs TTS (latest SDK)
 
 import os
 import json
@@ -15,10 +15,10 @@ from realtime_assistant import process_transcribed_text, form_data, conversation
 from fill_pdf_logic import fill_pdf
 
 import whisper
-from elevenlabs import generate, set_api_key, Voice, VoiceSettings
+from elevenlabs.client import ElevenLabs  # ✅ latest SDK
 
-# Initialize ElevenLabs
-set_api_key(os.getenv("ELEVENLABS_API_KEY"))
+# Init ElevenLabs client
+eleven_client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
 # Load Whisper model
 model = whisper.load_model("base")
@@ -28,7 +28,7 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# Data model
+# Audio input model
 class AudioInput(BaseModel):
     audio_base64: str
 
@@ -54,13 +54,10 @@ async def voice_stream(audio: AudioInput):
 
         print(f"🤖 ASSISTANT REPLY: {assistant_text}")
 
-        # Generate voice reply from ElevenLabs
-        audio_reply = generate(
+        # Generate assistant voice using ElevenLabs latest SDK
+        audio_reply = eleven_client.generate(
             text=assistant_text,
-            voice=Voice(
-                voice_id="EXAVITQu4vr4xnSDxMaL",  # Rachel
-                settings=VoiceSettings(stability=0.5, similarity_boost=0.75)
-            ),
+            voice="Rachel",
             model="eleven_monolingual_v1"
         )
         audio_base64 = base64.b64encode(audio_reply).decode("utf-8")
