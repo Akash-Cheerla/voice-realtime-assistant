@@ -96,7 +96,7 @@
           }
           if (result.audio_base64) {
             const audio = new Audio("data:audio/mp3;base64," + result.audio_base64);
-            audio.play();
+            await audio.play().catch(err => console.warn("Playback failed"));
           }
 
           if (!result.end_conversation) {
@@ -111,17 +111,22 @@
       setTimeout(() => mediaRecorder.stop(), 5000);
     }
 
-    window.onload = async () => {
-      const res = await fetch("/initial-message");
-      const msg = await res.text();
-      document.getElementById("log").innerHTML = `<div class='assistant'>🤖 ${msg}</div>`;
-
-      const audioRes = await fetch("/initial-audio");
-      const audioBase64 = await audioRes.text();
-      const audio = new Audio("data:audio/mp3;base64," + audioBase64);
-      audio.play();
-
-      setTimeout(requestMicAndStart, 3000);
+    window.onload = () => {
+      const startBtn = document.createElement("button");
+      startBtn.textContent = "▶️ Start Assistant";
+      startBtn.style.marginTop = "10px";
+      startBtn.onclick = async () => {
+        startBtn.remove();
+        const res = await fetch("/initial-message");
+        const data = await res.json();
+        document.getElementById("log").innerHTML = `<div class='assistant'>🤖 ${data.assistant_text}</div>`;
+        if (data.assistant_audio_base64) {
+          const audio = new Audio("data:audio/mp3;base64," + data.assistant_audio_base64);
+          await audio.play().catch(err => console.warn("Auto-play failed"));
+        }
+        requestMicAndStart();
+      };
+      document.getElementById("container").appendChild(startBtn);
     };
   </script>
 </body>
