@@ -1,9 +1,10 @@
-# main.py - FastAPI backend with OpenAI Whisper API + ElevenLabs
+# main.py - FastAPI backend with OpenAI Whisper API + ElevenLabs + Debug Logging
 
 import os
 import json
 import base64
 import tempfile
+import traceback
 from fastapi import FastAPI, UploadFile, Request
 from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -16,7 +17,7 @@ from elevenlabs.client import ElevenLabs
 from realtime_assistant import process_transcribed_text, form_data, conversation_history
 from fill_pdf_logic import fill_pdf
 
-# Initialize OpenAI and ElevenLabs clients
+# Initialize API keys
 openai.api_key = os.getenv("OPENAI_API_KEY")
 eleven_client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
@@ -25,7 +26,7 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# Model for receiving base64 audio
+# Request model
 class AudioInput(BaseModel):
     audio_base64: str
 
@@ -36,23 +37,22 @@ async def index(request: Request):
 @app.post("/voice-stream")
 async def voice_stream(audio: AudioInput):
     try:
-        # Decode base64 audio and write to temp WAV file
+        # Step 1: Save base64 audio to temp WAV file
         audio_bytes = base64.b64decode(audio.audio_base64.split(",")[-1])
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
             temp_audio.write(audio_bytes)
             temp_audio_path = temp_audio.name
 
-        # Transcribe using OpenAI Whisper API
+        # Step 2: Transcribe audio with OpenAI Whisper API
         with open(temp_audio_path, "rb") as audio_file:
             result = openai.Audio.transcribe("whisper-1", audio_file)
         user_text = result["text"].strip()
 
         print(f"\n🎙️ USER SAID: {user_text}")
         assistant_text = await process_transcribed_text(user_text)
-
         print(f"🤖 ASSISTANT REPLY: {assistant_text}")
 
-        # Generate assistant TTS with ElevenLabs
+        # Step 3: Generate assistant voice reply
         audio_reply = eleven_client.generate(
             text=assistant_text,
             voice="Rachel",
@@ -67,6 +67,8 @@ async def voice_stream(audio: AudioInput):
         })
 
     except Exception as e:
+        print("❌ Exception in /voice-stream:", e)
+        traceback.print_exc()
         return JSONResponse({"error": str(e)}, status_code=500)
 
 @app.get("/form-data")
