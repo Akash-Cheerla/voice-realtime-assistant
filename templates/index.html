@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Voice Merchant Assistant</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      background: #111;
+      color: #eee;
+      padding: 2rem;
+    }
+    .log {
+      background: #222;
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 1rem;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    .log div {
+      margin: 0.5rem 0;
+    }
+    button {
+      margin-top: 1rem;
+      padding: 0.6rem 1.2rem;
+      background: #00ffc8;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    #formSection {
+      margin-top: 2rem;
+    }
+    pre {
+      background: #1e1e1e;
+      padding: 1rem;
+      border-radius: 8px;
+    }
+  </style>
+</head>
+<body>
+  <h1>🧠 AI Voice Assistant — Merchant Form</h1>
+  <div class="log" id="chatLog"></div>
+
+  <div id="formSection" style="display: none;">
+    <h3>📝 Extracted Form Data</h3>
+    <pre id="formData"></pre>
+    <button onclick="confirmAndGenerate()">✅ Confirm & Generate PDF</button>
+    <a id="downloadLink" href="/download" download style="display: none;">📄 Download Filled PDF</a>
+  </div>
+
+  <audio id="assistantAudio" autoplay></audio>
+
+  <script>
+    const chatLog = document.getElementById('chatLog');
+    const audioPlayer = document.getElementById('assistantAudio');
+
+    async function startMicStream() {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      let chunks = [];
+
+      mediaRecorder.ondataavailable = e => chunks.push(e.data);
+      mediaRecorder.onstop = async () => {
+        const blob = new Blob(chunks, { type: 'audio/wav' });
+        const reader = new FileReader();
+        reader.onloadend = async () => {
+          const base64Audio = reader.result;
+          const res = await fetch('/voice-stream', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ audio_base64: base64Audio })
+          });
+
+          const data = await res.json();
+          if (data.user_text) logMessage('👤', data.user_text);
+          if (data.assistant_text) logMessage('🤖', data.assistant_text);
+
+          if (data.assistant_audio_base64) {
+            audioPlayer.src = `data:audio/mp3;base64,${data.assistant_audio_base64}`;
+          }
+
+          // continue recording again
+          chunks = [];
+          mediaRecorder.start();
+          setTimeout(() => mediaRecorder.stop(), 6000);
+        };
+        reader.readAsDataURL(blob);
+      };
+
+      // Start first cycle
+      mediaRecorder.start();
+      setTimeout(() => mediaRecorder.stop(), 6000);
+    }
+
+    function logMessage(role, text) {
+      const entry = document.createElement('div');
+      entry.innerHTML = `<strong>${role}</strong>: ${text}`;
+      chatLog.appendChild(entry);
+      chatLog.scrollTop = chatLog.scrollHeight;
+
+      if (text.includes('END OF CONVERSATION')) {
+        checkForm();
+      }
+    }
+
+    async function checkForm() {
+      const res = await fetch('/form-data');
+      if (res.ok) {
+        const data = await res.json();
+        document.getElementById('formData').textContent = JSON.stringify(data, null, 2);
+        document.getElementById('formSection').style.display = 'block';
+      }
+    }
+
+    async function confirmAndGenerate() {
+      const res = await fetch('/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmed: true })
+      });
+      const result = await res.json();
+      if (result.status === 'filled') {
+        document.getElementById('downloadLink').style.display = 'inline-block';
+      }
+    }
+
+    // Start mic on page load
+    window.onload = () => {
+      startMicStream();
+    };
+  </script>
+</body>
+</html>
