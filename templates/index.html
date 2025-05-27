@@ -63,6 +63,7 @@
     async function requestMicAndStart() {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        document.getElementById("log").innerHTML += `<div class='assistant'>🎤 Microphone access granted. Starting conversation...</div>`;
         startRecording(stream);
       } catch (err) {
         document.getElementById("log").innerHTML += `<div class='assistant'>❌ Microphone access denied. Please enable it to continue.</div>`;
@@ -80,27 +81,34 @@
         const formData = new FormData();
         formData.append("audio", blob, "recording.webm");
 
-        const response = await fetch("/voice-stream", {
-          method: "POST",
-          body: formData
-        });
-        const result = await response.json();
+        try {
+          const response = await fetch("/voice-stream", {
+            method: "POST",
+            body: formData
+          });
+          const result = await response.json();
 
-        document.getElementById("log").innerHTML += `<div class='user'>👤 ${result.user_text}</div>`;
-        document.getElementById("log").innerHTML += `<div class='assistant'>🤖 ${result.assistant_text}</div>`;
+          if (result.user_text) {
+            document.getElementById("log").innerHTML += `<div class='user'>👤 ${result.user_text}</div>`;
+          }
+          if (result.assistant_text) {
+            document.getElementById("log").innerHTML += `<div class='assistant'>🤖 ${result.assistant_text}</div>`;
+          }
+          if (result.audio_base64) {
+            const audio = new Audio("data:audio/mp3;base64," + result.audio_base64);
+            audio.play();
+          }
 
-        if (result.audio_base64) {
-          const audio = new Audio("data:audio/mp3;base64," + result.audio_base64);
-          audio.play();
-        }
-
-        if (!result.end_conversation) {
-          setTimeout(() => startRecording(stream), 1000);
+          if (!result.end_conversation) {
+            setTimeout(() => startRecording(stream), 1000);
+          }
+        } catch (err) {
+          document.getElementById("log").innerHTML += `<div class='assistant'>❌ Error processing voice input.</div>`;
         }
       };
 
       mediaRecorder.start();
-      setTimeout(() => mediaRecorder.stop(), 5000); // 5 seconds chunk
+      setTimeout(() => mediaRecorder.stop(), 5000);
     }
 
     window.onload = async () => {
@@ -113,7 +121,7 @@
       const audio = new Audio("data:audio/mp3;base64," + audioBase64);
       audio.play();
 
-      setTimeout(requestMicAndStart, 3000); // wait for greeting to finish
+      setTimeout(requestMicAndStart, 3000);
     };
   </script>
 </body>
