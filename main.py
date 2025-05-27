@@ -1,9 +1,8 @@
-# main.py - FastAPI backend with Whisper STT and ElevenLabs TTS (latest SDK)
+# main.py - FastAPI backend with OpenAI Whisper API + ElevenLabs
 
 import os
 import json
 import base64
-import asyncio
 import tempfile
 from fastapi import FastAPI, UploadFile, Request
 from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
@@ -11,24 +10,22 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
 
+import openai
+from elevenlabs.client import ElevenLabs
+
 from realtime_assistant import process_transcribed_text, form_data, conversation_history
 from fill_pdf_logic import fill_pdf
 
-import whisper
-from elevenlabs.client import ElevenLabs  # ✅ latest SDK
-
-# Init ElevenLabs client
+# Initialize OpenAI and ElevenLabs clients
+openai.api_key = os.getenv("OPENAI_API_KEY")
 eleven_client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
-# Load Whisper model
-model = whisper.load_model("base")
-
-# FastAPI app
+# FastAPI setup
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="static"), name="static")
 templates = Jinja2Templates(directory="templates")
 
-# Audio input model
+# Model for receiving base64 audio
 class AudioInput(BaseModel):
     audio_base64: str
 
@@ -39,22 +36,23 @@ async def index(request: Request):
 @app.post("/voice-stream")
 async def voice_stream(audio: AudioInput):
     try:
-        # Decode base64 audio
+        # Decode base64 audio and write to temp WAV file
         audio_bytes = base64.b64decode(audio.audio_base64.split(",")[-1])
         with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
             temp_audio.write(audio_bytes)
             temp_audio_path = temp_audio.name
 
-        # Transcribe with Whisper
-        result = model.transcribe(temp_audio_path)
-        user_text = result['text'].strip()
+        # Transcribe using OpenAI Whisper API
+        with open(temp_audio_path, "rb") as audio_file:
+            result = openai.Audio.transcribe("whisper-1", audio_file)
+        user_text = result["text"].strip()
 
         print(f"\n🎙️ USER SAID: {user_text}")
         assistant_text = await process_transcribed_text(user_text)
 
         print(f"🤖 ASSISTANT REPLY: {assistant_text}")
 
-        # Generate assistant voice using ElevenLabs latest SDK
+        # Generate assistant TTS with ElevenLabs
         audio_reply = eleven_client.generate(
             text=assistant_text,
             voice="Rachel",
@@ -82,7 +80,6 @@ async def confirm_form(request: Request):
         if body.get("confirmed"):
             with open("filled_form.json", "w", encoding="utf-8") as f:
                 json.dump(form_data, f, indent=2)
-
             fill_pdf("form_template.pdf", "output_filled.pdf", form_data)
             return {"status": "filled", "download_url": "/download"}
         return {"status": "cancelled"}

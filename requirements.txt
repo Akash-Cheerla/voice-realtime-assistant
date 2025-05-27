@@ -5,9 +5,6 @@ PyPDF2
 python-multipart
 aiofiles
 PyMuPDF>=1.23.0
-websockets
 openai
-whisper
-numpy
-jinja2
 elevenlabs
+jinja2
