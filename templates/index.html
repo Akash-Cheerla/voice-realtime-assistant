@@ -81,56 +81,64 @@
   <script>
     let mediaRecorder;
     let audioChunks = [];
+    let micStream = null;
 
     async function requestMicAndStart() {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
         document.getElementById("log").innerHTML += `<div class='assistant'>🎤 Microphone access granted. Starting conversation...</div>`;
-        startRecording(stream);
+        startContinuousRecording();
       } catch (err) {
         document.getElementById("log").innerHTML += `<div class='assistant'>❌ Microphone access denied. Please enable it to continue.</div>`;
       }
     }
 
-    function startRecording(stream) {
-      mediaRecorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
-      audioChunks = [];
+    function startContinuousRecording() {
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm";
+      mediaRecorder = new MediaRecorder(micStream, { mimeType });
 
-      mediaRecorder.ondataavailable = e => audioChunks.push(e.data);
+      mediaRecorder.ondataavailable = async e => {
+        if (e.data.size > 0) {
+          const blob = new Blob([e.data], { type: mimeType });
+          const formData = new FormData();
+          formData.append("audio", blob, "recording.webm");
 
-      mediaRecorder.onstop = async () => {
-        const blob = new Blob(audioChunks, { type: 'audio/webm' });
-        const formData = new FormData();
-        formData.append("audio", blob, "recording.webm");
+          try {
+            const response = await fetch("/voice-stream", {
+              method: "POST",
+              body: formData
+            });
+            const result = await response.json();
 
-        try {
-          const response = await fetch("/voice-stream", {
-            method: "POST",
-            body: formData
-          });
-          const result = await response.json();
+            if (result.user_text) {
+              document.getElementById("log").innerHTML += `<div class='user'>👤 ${result.user_text}</div>`;
+            }
+            if (result.assistant_text) {
+              document.getElementById("log").innerHTML += `<div class='assistant'>🤖 ${result.assistant_text}</div>`;
+            }
+            if (result.audio_base64) {
+              const audio = new Audio("data:audio/mp3;base64," + result.audio_base64);
+              await audio.play().catch(err => console.warn("Playback failed"));
+            }
+            if (result.form_data) {
+              document.getElementById("formData").textContent = JSON.stringify(result.form_data, null, 2);
+              document.getElementById("formSection").style.display = "block";
+            }
 
-          if (result.user_text) {
-            document.getElementById("log").innerHTML += `<div class='user'>👤 ${result.user_text}</div>`;
+          } catch (err) {
+            document.getElementById("log").innerHTML += `<div class='assistant'>❌ Error processing voice input.</div>`;
           }
-          if (result.assistant_text) {
-            document.getElementById("log").innerHTML += `<div class='assistant'>🤖 ${result.assistant_text}</div>`;
-          }
-          if (result.audio_base64) {
-            const audio = new Audio("data:audio/mp3;base64," + result.audio_base64);
-            await audio.play().catch(err => console.warn("Playback failed"));
-          }
-          if (result.form_data) {
-            document.getElementById("formData").textContent = JSON.stringify(result.form_data, null, 2);
-            document.getElementById("formSection").style.display = "block";
-          }
-
-          if (!result.end_conversation) {
-            setTimeout(() => startRecording(stream), 1000);
-          }
-        } catch (err) {
-          document.getElementById("log").innerHTML += `<div class='assistant'>❌ Error processing voice input.</div>`;
         }
+      };
+
+      mediaRecorder.onstop = () => {
+        setTimeout(() => {
+          if (micStream.active) {
+            startContinuousRecording();
+            mediaRecorder.start();
+            setTimeout(() => mediaRecorder.stop(), 5000);
+          }
+        }, 250);
       };
 
       mediaRecorder.start();
