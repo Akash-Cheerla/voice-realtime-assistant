@@ -6,17 +6,25 @@ import openai
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
 
-# Form field structure
 form_data = {
-    "SiteCompanyName1": None, "SiteAddress": None, "SiteCity": None, "SiteState": None, "SiteZip": None,
-    "SiteVoice": None, "SiteFax": None, "CorporateCompanyName1": None, "CorporateAddress": None,
-    "CorporateCity": None, "CorporateState": None, "CorporateZip": None, "CorporateName": None,
-    "SiteEmail": None, "CorporateVoice": None, "CorporateFax": None, "BusinessWebsite": None,
-    "CorporateEmail": None, "CustomerSvcEmail": None, "AppRetrievalMail": None, "AppRetrievalFax": None,
-    "AppRetrievalFaxNumber": None, "MCC-Desc": None, "MerchantInitials1": None, "MerchantInitials2": None,
-    "MerchantInitials3": None, "MerchantInitials4": None, "MerchantInitials5": None, "MerchantInitials6": None,
-    "MerchantInitials7": None, "signer1signature1": None, "Owner0Name1": None, "Owner0LastName1": None,
-    "signer1signature2": None, "Owner0Name2": None, "Owner0LastName2": None
+    "DBAName": None,
+    "LegalCorporateName": None,
+    "BusinessAddress": None,
+    "BillingAddress": None,
+    "City": None,
+    "State": None,
+    "Zip": None,
+    "Phone": None,
+    "Fax": None,
+    "ContactName": None,
+    "BusinessEmail": None,
+    "ContactPhone": None,
+    "ContactFax": None,
+    "ContactEmail": None,
+    "Website": None,
+    "CustomerServiceEmail": None,
+    "RetrievalRequestDestination": None,
+    "MCCSICDescription": None
 }
 
 conversation_history = []
@@ -27,11 +35,11 @@ end_triggered = False
 def get_initial_assistant_message():
     global last_assistant_msg
     greetings = [
-        "Hi there! Ready to fill out your Merchant Application? Let's get started — what's the legal name of your business?",
-        "Hello! I'm your assistant for this form. Can you please tell me your business’s legal name?",
-        "Welcome! Let's kick off the form. What's the official name of your business entity?",
-        "Hey! I’ll guide you through your Merchant Application. First up: your legal business name, please?",
-        "Great to have you here! To begin, could you share your business's legal name?"
+        "Hi there! Ready to fill out your Merchant Application? Let's get started — what's your DBA or business name?",
+        "Hello! I’ll be helping you fill out your merchant form. Let’s begin with your business’s DBA name.",
+        "Welcome! Let’s kick things off. What’s the name your business operates under (DBA)?",
+        "Hey! I’ll guide you through your Merchant form. First, can you tell me your DBA or business name?",
+        "Great to have you! To start, what’s the doing-business-as (DBA) name for your company?"
     ]
     initial_message = random.choice(greetings)
     last_assistant_msg = initial_message
@@ -46,35 +54,31 @@ def get_initial_assistant_message():
 async def process_transcribed_text(user_text):
     global last_assistant_msg, end_triggered
 
-    # Save user input
     conversation_history.append({
         "role": "user",
         "text": user_text,
         "timestamp": datetime.now().isoformat()
     })
 
-    # Prompt to extract form fields
     extraction_prompt = f"""
-You are helping fill out a merchant processing application form.
-Based on the assistant's last question and the user's reply, extract any of the following fields:
+You are helping fill out a Merchant Processing Application. Based on the assistant's last question and the user's reply, extract any relevant fields from this list:
 
-{json.dumps(list(form_data.keys()), indent=2)}
+{list(form_data.keys())}
 
 Assistant: {last_assistant_msg}
 User: {user_text}
 
-Return ONLY a valid JSON object with matched fields and values.
-If there are no matches, return just {{}}.
+Return only a valid JSON object using those exact field names. If nothing applies, return {{}}.
 """
 
     try:
         extract_response = openai.ChatCompletion.create(
             model="gpt-4",
             messages=[
-                {"role": "system", "content": "You extract structured fields from the user's speech."},
+                {"role": "system", "content": "You extract structured form fields from user replies."},
                 {"role": "user", "content": extraction_prompt}
             ],
-            temperature=0
+            temperature=0.2
         )
         extracted_json = extract_response['choices'][0]['message']['content'].strip()
         parsed = json.loads(extracted_json)
@@ -84,38 +88,55 @@ If there are no matches, return just {{}}.
     except Exception as e:
         print("⚠️ Field extraction error:", e)
 
-    # Main assistant logic prompt
+    all_fields_filled = all(value is not None for value in form_data.values())
+
     instruction_prompt = """
-You are an AI assistant designed to help users fill out a Merchant Processing Application and Agreement form.
-Be friendly, intelligent, and conversational — like Siri or ChatGPT.
+You are a conversational AI assistant helping users fill out a Merchant Processing Application.
 
-Your job is to collect all necessary form fields from the user in a natural way.
-NEVER repeat greetings after the first message. DO NOT answer questions unrelated to the form.
+Be intelligent, friendly, and natural—like Siri or ChatGPT. Guide the user through collecting the following fields only:
 
-Ask only 1–2 questions at a time. Be helpful. Provide examples when needed.
-If the user goes off-topic, gently steer them back.
+- DBAName
+- LegalCorporateName
+- BusinessAddress
+- BillingAddress
+- City
+- State
+- Zip
+- Phone
+- Fax
+- ContactName
+- BusinessEmail
+- ContactPhone
+- ContactFax
+- ContactEmail
+- Website
+- CustomerServiceEmail
+- RetrievalRequestDestination
+- MCCSICDescription
 
-Once all required fields are collected, summarize the completed form in a friendly bullet list.
-Ask the user to confirm all the details. If they confirm, reply ONLY with:
+Ask one or two natural, context-aware questions at a time. Provide gentle examples if needed. Avoid robotic phrasing.
 
-END OF CONVERSATION
+If the user says something irrelevant, gently steer them back.
+
+Once all fields above are filled, summarize everything clearly and ask for confirmation. If the user confirms, say “END OF CONVERSATION” — no more questions after that.
 """
 
     try:
+        messages = [
+            {"role": "system", "content": instruction_prompt}
+        ] + [
+            {"role": msg["role"], "content": msg["text"]}
+            for msg in conversation_history[-12:]
+        ]
+
         response = openai.ChatCompletion.create(
             model="gpt-4",
-            messages=[
-                {"role": "system", "content": instruction_prompt},
-                *[
-                    {"role": msg["role"], "content": msg["text"]}
-                    for msg in conversation_history[-12:]
-                ]
-            ],
+            messages=messages,
             temperature=0.4
         )
         assistant_reply = response['choices'][0]['message']['content'].strip()
-        last_assistant_msg = assistant_reply
 
+        last_assistant_msg = assistant_reply
         conversation_history.append({
             "role": "assistant",
             "text": assistant_reply,
@@ -129,4 +150,4 @@ END OF CONVERSATION
 
     except Exception as e:
         print("❌ Assistant generation error:", e)
-        return "Sorry, I had trouble processing that. Could you please say it again?"
+        return "Sorry, I had trouble with that. Could you please repeat?"

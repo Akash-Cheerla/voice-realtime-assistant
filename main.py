@@ -13,7 +13,8 @@ from realtime_assistant import (
     process_transcribed_text,
     form_data,
     conversation_history,
-    get_initial_assistant_message
+    get_initial_assistant_message,
+    end_triggered
 )
 import openai
 
@@ -36,14 +37,13 @@ app.add_middleware(
 # Static file mounting
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-
 @app.get("/")
 async def serve_index():
     return FileResponse("templates/index.html")
 
-
 @app.get("/initial-message")
 async def initial_message():
+    from realtime_assistant import get_initial_assistant_message
     assistant_text = get_initial_assistant_message()
     try:
         audio_reply = eleven_client.text_to_speech.convert(
@@ -62,9 +62,17 @@ async def initial_message():
         "assistant_audio_base64": audio_base64
     })
 
-
 @app.post("/voice-stream")
 async def voice_stream(audio: UploadFile = File(...)):
+    from realtime_assistant import end_triggered
+    if end_triggered:
+        return JSONResponse({
+            "user_text": "",
+            "assistant_text": "END OF CONVERSATION",
+            "audio_base64": None,
+            "form_data": form_data
+        })
+
     try:
         # Save incoming audio
         contents = await audio.read()
@@ -112,27 +120,31 @@ async def voice_stream(audio: UploadFile = File(...)):
         traceback.print_exc()
         return JSONResponse({"error": str(e)}, status_code=500)
 
-
 @app.get("/form-data")
 async def get_form_data():
     return JSONResponse(form_data)
 
-
 @app.post("/confirm")
 async def confirm(request: Request):
+    from realtime_assistant import end_triggered
     try:
         body = await request.json()
         if body.get("confirmed"):
-            input_pdf_path = "form_template.pdf"  # Make sure this PDF exists
-            output_pdf_path = "filled_form.pdf"
-            fill_pdf(input_pdf_path, output_pdf_path, form_data)
+            if not end_triggered:
+                return JSONResponse({"error": "Conversation has not ended yet."}, status_code=400)
+            fill_pdf("form_template.pdf", "filled_form.pdf", form_data)
             return JSONResponse({"status": "filled"})
         return JSONResponse({"status": "not confirmed"}, status_code=400)
     except Exception as e:
         print("❌ Error in /confirm:", e)
         return JSONResponse({"error": str(e)}, status_code=500)
 
-
 @app.get("/download")
 async def download_pdf():
     return FileResponse("filled_form.pdf", media_type="application/pdf", filename="MerchantForm.pdf")
+
+@app.post("/reset")
+async def reset():
+    from realtime_assistant import reset_assistant_state
+    reset_assistant_state()
+    return JSONResponse({"status": "reset successful"})

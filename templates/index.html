@@ -75,12 +75,15 @@
     <h1>🎙️ Talk to Assistant</h1>
     <div id="log">Initializing assistant...</div>
     <div id="statusLabel"></div>
+
     <div id="formSection">
       <h3>📝 Live Form Data</h3>
       <pre id="formData"></pre>
       <button onclick="confirmAndGenerate()">✅ Confirm & Generate PDF</button>
       <a id="downloadLink" href="/download" download style="display:none">📄 Download Filled PDF</a>
+      <button id="resetBtn" onclick="resetConversation()" style="display:none; background-color: #636e72;">🔁 Start Over</button>
     </div>
+
     <audio id="replyAudio" controls style="display:none"></audio>
   </div>
 
@@ -92,6 +95,7 @@
     let audioContext, analyser, sourceNode;
     let isRecording = false;
     let isAssistantSpeaking = false;
+    let isConversationEnded = false;
 
     async function requestMicAndStart() {
       try {
@@ -157,7 +161,6 @@
 
     async function handleRecordingStop() {
       clearInterval(vadInterval);
-
       const blob = new Blob(audioChunks, { type: 'audio/webm' });
       const formData = new FormData();
       formData.append("audio", blob, "recording.webm");
@@ -171,6 +174,9 @@
         }
         if (result.assistant_text) {
           document.getElementById("log").innerHTML += `<div class='assistant'>🤖 ${result.assistant_text}</div>`;
+          if (result.assistant_text.includes("END OF CONVERSATION")) {
+            isConversationEnded = true;
+          }
         }
         if (result.audio_base64) {
           isAssistantSpeaking = true;
@@ -179,8 +185,13 @@
           audio.play();
           audio.onended = () => {
             isAssistantSpeaking = false;
-            document.getElementById("statusLabel").textContent = "🎤 You may speak now...";
-            startVAD();
+            if (!isConversationEnded) {
+              document.getElementById("statusLabel").textContent = "🎤 You may speak now...";
+              startVAD();
+            } else {
+              document.getElementById("statusLabel").textContent = "✅ Thank you! The form is complete.";
+              document.getElementById("resetBtn").style.display = "inline-block";
+            }
           };
         }
         if (result.form_data) {
@@ -202,6 +213,20 @@
       if (result.status === 'filled') {
         document.getElementById('downloadLink').style.display = 'inline-block';
       }
+    }
+
+    function resetConversation() {
+      isConversationEnded = false;
+      isRecording = false;
+      isAssistantSpeaking = false;
+      audioChunks = [];
+      document.getElementById("log").innerHTML = "Initializing assistant...";
+      document.getElementById("statusLabel").textContent = "";
+      document.getElementById("formSection").style.display = "none";
+      document.getElementById("formData").textContent = "";
+      document.getElementById("downloadLink").style.display = "none";
+      document.getElementById("resetBtn").style.display = "none";
+      startAssistantFlow();
     }
 
     window.onload = () => {
