@@ -63,11 +63,10 @@
       border-radius: 5px;
       cursor: pointer;
     }
-    #statusIndicator {
+    #statusLabel {
+      font-weight: bold;
       text-align: center;
       margin-top: 10px;
-      font-size: 14px;
-      color: #636e72;
     }
   </style>
 </head>
@@ -75,19 +74,18 @@
   <div id="container">
     <h1>🎙️ Talk to Assistant</h1>
     <div id="log">Initializing assistant...</div>
-    <div id="statusIndicator">🛑 Waiting for assistant to finish speaking...</div>
+    <div id="statusLabel"></div>
     <div id="formSection">
       <h3>📝 Live Form Data</h3>
       <pre id="formData"></pre>
       <button onclick="confirmAndGenerate()">✅ Confirm & Generate PDF</button>
       <a id="downloadLink" href="/download" download style="display:none">📄 Download Filled PDF</a>
     </div>
-    <audio id="replyAudio" controls></audio>
+    <audio id="replyAudio" controls style="display:none"></audio>
   </div>
 
   <script>
     let mediaRecorder;
-    let audioChunks = [];
     let micStream = null;
     let isAssistantSpeaking = false;
 
@@ -95,27 +93,45 @@
       try {
         micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
         document.getElementById("log").innerHTML += `<div class='assistant'>🎤 Microphone access granted. Starting conversation...</div>`;
-        startContinuousRecording();
+        startAssistantFlow();
       } catch (err) {
         document.getElementById("log").innerHTML += `<div class='assistant'>❌ Microphone access denied. Please enable it to continue.</div>`;
       }
     }
 
-    function startContinuousRecording() {
+    async function startAssistantFlow() {
+      await playInitialMessage();
+    }
+
+    async function playInitialMessage() {
+      const res = await fetch("/initial-message");
+      const data = await res.json();
+      document.getElementById("log").innerHTML += `<div class='assistant'>🤖 ${data.assistant_text}</div>`;
+      if (data.assistant_audio_base64) {
+        isAssistantSpeaking = true;
+        document.getElementById("statusLabel").textContent = "🤖 Assistant is speaking...";
+        const audio = new Audio("data:audio/mp3;base64," + data.assistant_audio_base64);
+        await audio.play().catch(() => {});
+        audio.onended = () => {
+          isAssistantSpeaking = false;
+          document.getElementById("statusLabel").textContent = "🎤 You may speak now...";
+          listenOnce();
+        };
+      }
+    }
+
+    function listenOnce() {
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus") ? "audio/webm;codecs=opus" : "audio/webm";
       mediaRecorder = new MediaRecorder(micStream, { mimeType });
 
       mediaRecorder.ondataavailable = async e => {
-        if (e.data.size > 0 && !isAssistantSpeaking) {
+        if (e.data.size > 0) {
           const blob = new Blob([e.data], { type: mimeType });
           const formData = new FormData();
           formData.append("audio", blob, "recording.webm");
 
           try {
-            const response = await fetch("/voice-stream", {
-              method: "POST",
-              body: formData
-            });
+            const response = await fetch("/voice-stream", { method: "POST", body: formData });
             const result = await response.json();
 
             if (result.user_text) {
@@ -126,36 +142,23 @@
             }
             if (result.audio_base64) {
               isAssistantSpeaking = true;
-              document.getElementById("statusIndicator").textContent = "🛑 Assistant speaking. Please wait...";
+              document.getElementById("statusLabel").textContent = "🤖 Assistant is speaking...";
               const audio = new Audio("data:audio/mp3;base64," + result.audio_base64);
               audio.play();
               audio.onended = () => {
                 isAssistantSpeaking = false;
-                document.getElementById("statusIndicator").textContent = "✅ You may speak now...";
-                if (micStream.active) startContinuousRecording();
+                document.getElementById("statusLabel").textContent = "🎤 You may speak now...";
+                listenOnce();
               };
-              return;
             }
             if (result.form_data) {
               document.getElementById("formData").textContent = JSON.stringify(result.form_data, null, 2);
               document.getElementById("formSection").style.display = "block";
             }
-
           } catch (err) {
             document.getElementById("log").innerHTML += `<div class='assistant'>❌ Error processing voice input.</div>`;
-            if (micStream.active) startContinuousRecording();
           }
         }
-      };
-
-      mediaRecorder.onstop = () => {
-        setTimeout(() => {
-          if (!isAssistantSpeaking && micStream.active) {
-            startContinuousRecording();
-            mediaRecorder.start();
-            setTimeout(() => mediaRecorder.stop(), 5000);
-          }
-        }, 250);
       };
 
       mediaRecorder.start();
@@ -178,16 +181,8 @@
       const startBtn = document.createElement("button");
       startBtn.textContent = "▶️ Start Assistant";
       startBtn.style.marginTop = "10px";
-      startBtn.onclick = async () => {
+      startBtn.onclick = () => {
         startBtn.remove();
-        const res = await fetch("/initial-message");
-        const data = await res.json();
-        document.getElementById("log").innerHTML = `<div class='assistant'>🤖 ${data.assistant_text}</div>`;
-        if (data.assistant_audio_base64) {
-          const audio = new Audio("data:audio/mp3;base64," + data.assistant_audio_base64);
-          await audio.play().catch(err => console.warn("Auto-play failed"));
-        }
-        document.getElementById("statusIndicator").textContent = "✅ You may speak now...";
         requestMicAndStart();
       };
       document.getElementById("container").appendChild(startBtn);

@@ -17,14 +17,14 @@ from realtime_assistant import (
 )
 import openai
 
-# Load environment variables
+# Load env
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 eleven_client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
 app = FastAPI()
 
-# Enable CORS for all origins
+# CORS for frontend access
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -33,10 +33,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Serve frontend static files
+# Static and index file setup
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# Serve the HTML landing page
+
 @app.get("/")
 async def serve_index():
     return FileResponse("templates/index.html")
@@ -66,9 +66,13 @@ async def voice_stream(audio: UploadFile = File(...)):
             temp_audio.write(contents)
             temp_audio_path = temp_audio.name
 
-        # Use Whisper via OpenAI (correct call)
+        # OpenAI Whisper transcription
         with open(temp_audio_path, "rb") as audio_file:
-            result = openai.Audio.transcribe("whisper-1", audio_file, language="en")
+            result = openai.Audio.transcribe(
+                model="whisper-1",
+                file=audio_file,
+                language="en"
+            )
 
         user_text = result["text"].strip()
         print(f"🎙️ USER SAID: {user_text}")
@@ -107,7 +111,7 @@ async def confirm(request: Request):
     try:
         body = await request.json()
         if body.get("confirmed"):
-            filled_pdf_path = fill_pdf(form_data)
+            fill_pdf(form_data)
             return JSONResponse({"status": "filled"})
         return JSONResponse({"status": "not confirmed"}, status_code=400)
     except Exception as e:
