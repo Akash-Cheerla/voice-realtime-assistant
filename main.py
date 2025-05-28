@@ -1,73 +1,82 @@
-# main.py — updated with forced Whisper language and cleaned assistant
-
 import os
-import json
 import base64
 import tempfile
 import traceback
-from fastapi import FastAPI, UploadFile, Request
-from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
+from fastapi import FastAPI, UploadFile, File, Request
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
+from fastapi.middleware.cors import CORSMiddleware
+from elevenlabs.client import ElevenLabs
+from dotenv import load_dotenv
+from fill_pdf_logic import fill_pdf
+from realtime_assistant import (
+    process_transcribed_text,
+    form_data,
+    conversation_history,
+    get_initial_assistant_message
+)
 
 import openai
-from elevenlabs.client import ElevenLabs
 
-from realtime_assistant import process_transcribed_text, form_data, conversation_history
-from fill_pdf_logic import fill_pdf
-
-# Initialize OpenAI and ElevenLabs
+# Load environment variables
+load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
+
 eleven_client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
 app = FastAPI()
+
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"], allow_credentials=True,
+    allow_methods=["*"], allow_headers=["*"]
+)
+
+# Serve frontend
 app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
 
-class AudioInput(BaseModel):
-    audio_base64: str
 
-@app.get("/", response_class=HTMLResponse)
-async def index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+@app.get("/")
+async def root():
+    return FileResponse("index.html")
+
 
 @app.get("/initial-message")
 async def initial_message():
-    try:
-        initial_text = await process_transcribed_text("[start]")
-        audio_reply = eleven_client.text_to_speech.convert(
-            voice_id="EXAVITQu4vr4xnSDxMaL",
-            model_id="eleven_monolingual_v1",
-            text=initial_text
-        )
-        audio_bytes = b"".join(audio_reply)
-        audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
-        return JSONResponse({
-            "assistant_text": initial_text,
-            "assistant_audio_base64": audio_base64
-        })
-    except Exception as e:
-        traceback.print_exc()
-        return JSONResponse({"error": str(e)}, status_code=500)
+    assistant_text = get_initial_assistant_message()
+    audio_reply = eleven_client.text_to_speech.convert(
+        voice_id="EXAVITQu4vr4xnSDxMaL",
+        model_id="eleven_monolingual_v1",
+        text=assistant_text
+    )
+    audio_bytes = b"".join(audio_reply)
+    audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+    return JSONResponse({
+        "assistant_text": assistant_text,
+        "assistant_audio_base64": audio_base64
+    })
+
 
 @app.post("/voice-stream")
-async def voice_stream(audio: AudioInput):
+async def voice_stream(audio: UploadFile = File(...)):
     try:
-        audio_bytes = base64.b64decode(audio.audio_base64.split(",")[-1])
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio:
-            temp_audio.write(audio_bytes)
+        contents = await audio.read()
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as temp_audio:
+            temp_audio.write(contents)
             temp_audio_path = temp_audio.name
 
+        # Whisper transcription
         with open(temp_audio_path, "rb") as audio_file:
-            result = openai.Audio.transcribe(
+            result = openai.audio.transcriptions.create(
                 model="whisper-1",
                 file=audio_file,
-                language="en"  # Force English
+                language="en"
             )
-        user_text = result["text"].strip()
 
-        print(f"\n🎙️ USER SAID: {user_text}")
+        user_text = result.text.strip()
+        print(f"🎙️ USER SAID: {user_text}")
+
         assistant_text = await process_transcribed_text(user_text)
         print(f"🤖 ASSISTANT REPLY: {assistant_text}")
 
@@ -82,35 +91,34 @@ async def voice_stream(audio: AudioInput):
         return JSONResponse({
             "user_text": user_text,
             "assistant_text": assistant_text,
-            "assistant_audio_base64": audio_base64
+            "audio_base64": audio_base64,
+            "form_data": form_data
         })
 
     except Exception as e:
-        print("❌ Exception in /voice-stream:", e)
+        print("❌ Error in /voice-stream:", e)
         traceback.print_exc()
         return JSONResponse({"error": str(e)}, status_code=500)
 
+
 @app.get("/form-data")
-async def get_form():
+async def get_form_data():
     return JSONResponse(form_data)
 
+
 @app.post("/confirm")
-async def confirm_form(request: Request):
+async def confirm_data(request: Request):
     try:
         body = await request.json()
         if body.get("confirmed"):
-            with open("filled_form.json", "w", encoding="utf-8") as f:
-                json.dump(form_data, f, indent=2)
-            fill_pdf("form_template.pdf", "output_filled.pdf", form_data)
-            return {"status": "filled", "download_url": "/download"}
-        return {"status": "cancelled"}
+            filled_path = fill_pdf(form_data)
+            return JSONResponse({"status": "filled"})
+        return JSONResponse({"status": "not confirmed"}, status_code=400)
     except Exception as e:
-        return {"status": "error", "detail": str(e)}
+        print("❌ Error in /confirm:", e)
+        return JSONResponse({"error": str(e)}, status_code=500)
+
 
 @app.get("/download")
-async def download_pdf():
-    return FileResponse("output_filled.pdf", media_type="application/pdf", filename="Merchant_Form_Filled.pdf")
-
-@app.get("/conversation")
-async def get_conversation():
-    return JSONResponse(conversation_history)
+async def download_filled_pdf():
+    return FileResponse("filled_form.pdf", media_type="application/pdf", filename="MerchantForm.pdf")

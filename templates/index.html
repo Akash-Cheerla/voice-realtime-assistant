@@ -43,9 +43,25 @@
       padding: 10px;
       border-radius: 10px;
     }
-    audio {
-      display: block;
-      margin: 20px auto 0;
+    #formSection {
+      margin-top: 20px;
+      display: none;
+    }
+    pre {
+      background: #272822;
+      color: #f8f8f2;
+      padding: 10px;
+      border-radius: 8px;
+      overflow-x: auto;
+    }
+    button {
+      padding: 10px 20px;
+      margin-top: 10px;
+      background-color: #00b894;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
     }
   </style>
 </head>
@@ -53,6 +69,12 @@
   <div id="container">
     <h1>🎙️ Talk to Assistant</h1>
     <div id="log">Initializing assistant...</div>
+    <div id="formSection">
+      <h3>📝 Live Form Data</h3>
+      <pre id="formData"></pre>
+      <button onclick="confirmAndGenerate()">✅ Confirm & Generate PDF</button>
+      <a id="downloadLink" href="/download" download style="display:none">📄 Download Filled PDF</a>
+    </div>
     <audio id="replyAudio" controls></audio>
   </div>
 
@@ -98,6 +120,10 @@
             const audio = new Audio("data:audio/mp3;base64," + result.audio_base64);
             await audio.play().catch(err => console.warn("Playback failed"));
           }
+          if (result.form_data) {
+            document.getElementById("formData").textContent = JSON.stringify(result.form_data, null, 2);
+            document.getElementById("formSection").style.display = "block";
+          }
 
           if (!result.end_conversation) {
             setTimeout(() => startRecording(stream), 1000);
@@ -109,6 +135,18 @@
 
       mediaRecorder.start();
       setTimeout(() => mediaRecorder.stop(), 5000);
+    }
+
+    async function confirmAndGenerate() {
+      const res = await fetch('/confirm', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmed: true })
+      });
+      const result = await res.json();
+      if (result.status === 'filled') {
+        document.getElementById('downloadLink').style.display = 'inline-block';
+      }
     }
 
     window.onload = () => {
