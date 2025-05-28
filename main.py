@@ -6,6 +6,7 @@ from fastapi import FastAPI, UploadFile, File, Request
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.templating import Jinja2Templates
 from dotenv import load_dotenv
 from elevenlabs.client import ElevenLabs
 from fill_pdf_logic import fill_pdf
@@ -22,6 +23,7 @@ load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 eleven_client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
+# FastAPI setup
 app = FastAPI()
 
 # Enable CORS
@@ -33,13 +35,15 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Serve frontend static files
+# Mount static directory
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
+# Jinja2 template directory setup
+templates = Jinja2Templates(directory="templates")
 
 @app.get("/")
-async def serve_index():
-    return FileResponse("index.html")
+async def serve_index(request: Request):
+    return templates.TemplateResponse("index.html", {"request": request})
 
 
 @app.get("/initial-message")
