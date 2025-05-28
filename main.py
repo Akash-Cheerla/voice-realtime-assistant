@@ -6,7 +6,6 @@ from fastapi import FastAPI, UploadFile, File, Request
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.templating import Jinja2Templates
 from dotenv import load_dotenv
 from elevenlabs.client import ElevenLabs
 from fill_pdf_logic import fill_pdf
@@ -16,16 +15,16 @@ from realtime_assistant import (
     conversation_history,
     get_initial_assistant_message
 )
-from openai import OpenAI
+import openai
 
 # Load environment variables
 load_dotenv()
-client = OpenAI()
+openai.api_key = os.getenv("OPENAI_API_KEY")
 eleven_client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
 app = FastAPI()
 
-# Enable CORS
+# Enable CORS for all origins
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -34,14 +33,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Static and templates setup
+# Serve frontend static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="templates")
 
-
+# Serve the HTML landing page
 @app.get("/")
 async def serve_index():
-    return templates.TemplateResponse("index.html", {"request": {}})
+    return FileResponse("templates/index.html")
 
 
 @app.get("/initial-message")
@@ -68,14 +66,11 @@ async def voice_stream(audio: UploadFile = File(...)):
             temp_audio.write(contents)
             temp_audio_path = temp_audio.name
 
+        # Use Whisper via OpenAI (correct call)
         with open(temp_audio_path, "rb") as audio_file:
-            result = client.audio.transcriptions.create(
-                model="whisper-1",
-                file=audio_file,
-                language="en"
-            )
+            result = openai.Audio.transcribe("whisper-1", audio_file, language="en")
 
-        user_text = result.text.strip()
+        user_text = result["text"].strip()
         print(f"🎙️ USER SAID: {user_text}")
 
         assistant_text = await process_transcribed_text(user_text)
