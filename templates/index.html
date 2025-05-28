@@ -63,12 +63,19 @@
       border-radius: 5px;
       cursor: pointer;
     }
+    #statusIndicator {
+      text-align: center;
+      margin-top: 10px;
+      font-size: 14px;
+      color: #636e72;
+    }
   </style>
 </head>
 <body>
   <div id="container">
     <h1>🎙️ Talk to Assistant</h1>
     <div id="log">Initializing assistant...</div>
+    <div id="statusIndicator">🛑 Waiting for assistant to finish speaking...</div>
     <div id="formSection">
       <h3>📝 Live Form Data</h3>
       <pre id="formData"></pre>
@@ -82,6 +89,7 @@
     let mediaRecorder;
     let audioChunks = [];
     let micStream = null;
+    let isAssistantSpeaking = false;
 
     async function requestMicAndStart() {
       try {
@@ -98,7 +106,7 @@
       mediaRecorder = new MediaRecorder(micStream, { mimeType });
 
       mediaRecorder.ondataavailable = async e => {
-        if (e.data.size > 0) {
+        if (e.data.size > 0 && !isAssistantSpeaking) {
           const blob = new Blob([e.data], { type: mimeType });
           const formData = new FormData();
           formData.append("audio", blob, "recording.webm");
@@ -117,8 +125,16 @@
               document.getElementById("log").innerHTML += `<div class='assistant'>🤖 ${result.assistant_text}</div>`;
             }
             if (result.audio_base64) {
+              isAssistantSpeaking = true;
+              document.getElementById("statusIndicator").textContent = "🛑 Assistant speaking. Please wait...";
               const audio = new Audio("data:audio/mp3;base64," + result.audio_base64);
-              await audio.play().catch(err => console.warn("Playback failed"));
+              audio.play();
+              audio.onended = () => {
+                isAssistantSpeaking = false;
+                document.getElementById("statusIndicator").textContent = "✅ You may speak now...";
+                if (micStream.active) startContinuousRecording();
+              };
+              return;
             }
             if (result.form_data) {
               document.getElementById("formData").textContent = JSON.stringify(result.form_data, null, 2);
@@ -127,13 +143,14 @@
 
           } catch (err) {
             document.getElementById("log").innerHTML += `<div class='assistant'>❌ Error processing voice input.</div>`;
+            if (micStream.active) startContinuousRecording();
           }
         }
       };
 
       mediaRecorder.onstop = () => {
         setTimeout(() => {
-          if (micStream.active) {
+          if (!isAssistantSpeaking && micStream.active) {
             startContinuousRecording();
             mediaRecorder.start();
             setTimeout(() => mediaRecorder.stop(), 5000);
@@ -170,6 +187,7 @@
           const audio = new Audio("data:audio/mp3;base64," + data.assistant_audio_base64);
           await audio.play().catch(err => console.warn("Auto-play failed"));
         }
+        document.getElementById("statusIndicator").textContent = "✅ You may speak now...";
         requestMicAndStart();
       };
       document.getElementById("container").appendChild(startBtn);
