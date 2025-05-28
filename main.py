@@ -6,8 +6,8 @@ from fastapi import FastAPI, UploadFile, File, Request
 from fastapi.responses import JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
-from elevenlabs.client import ElevenLabs
 from dotenv import load_dotenv
+from elevenlabs.client import ElevenLabs
 from fill_pdf_logic import fill_pdf
 from realtime_assistant import (
     process_transcribed_text,
@@ -15,30 +15,30 @@ from realtime_assistant import (
     conversation_history,
     get_initial_assistant_message
 )
-
 import openai
 
 # Load environment variables
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
-
 eleven_client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
 app = FastAPI()
 
-# CORS
+# Enable CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], allow_credentials=True,
-    allow_methods=["*"], allow_headers=["*"]
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-# Serve frontend
+# Serve frontend static files
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
 @app.get("/")
-async def root():
+async def serve_index():
     return FileResponse("index.html")
 
 
@@ -66,7 +66,7 @@ async def voice_stream(audio: UploadFile = File(...)):
             temp_audio.write(contents)
             temp_audio_path = temp_audio.name
 
-        # Whisper transcription
+        # Transcribe using OpenAI Whisper
         with open(temp_audio_path, "rb") as audio_file:
             result = openai.audio.transcriptions.create(
                 model="whisper-1",
@@ -107,11 +107,11 @@ async def get_form_data():
 
 
 @app.post("/confirm")
-async def confirm_data(request: Request):
+async def confirm(request: Request):
     try:
         body = await request.json()
         if body.get("confirmed"):
-            filled_path = fill_pdf(form_data)
+            filled_pdf_path = fill_pdf(form_data)
             return JSONResponse({"status": "filled"})
         return JSONResponse({"status": "not confirmed"}, status_code=400)
     except Exception as e:
@@ -120,5 +120,5 @@ async def confirm_data(request: Request):
 
 
 @app.get("/download")
-async def download_filled_pdf():
+async def download_pdf():
     return FileResponse("filled_form.pdf", media_type="application/pdf", filename="MerchantForm.pdf")

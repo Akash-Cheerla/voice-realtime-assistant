@@ -1,4 +1,4 @@
-# realtime_assistant.py — updated to skip repeated greetings and force English replies
+# realtime_assistant.py — updated with get_initial_assistant_message and refined flow
 
 import json
 import os
@@ -20,13 +20,33 @@ form_data = {
 }
 
 conversation_history = []
-last_assistant_msg = "Hello, can we get started by telling me the first steps?"
+last_assistant_msg = ""
 end_triggered = False
+
+
+def get_initial_assistant_message():
+    global last_assistant_msg
+    initial_message = (
+        "Hello! I'm here to assist you in filling out your Merchant Processing Application and Agreement form. "
+        "Let's start with the first section. \n\nCould you please provide the legal name of your business?"
+    )
+    last_assistant_msg = initial_message
+    conversation_history.append({
+        "role": "assistant",
+        "text": initial_message,
+        "timestamp": datetime.now().isoformat()
+    })
+    return initial_message
+
 
 async def process_transcribed_text(user_text):
     global last_assistant_msg, end_triggered
 
-    conversation_history.append({"role": "user", "text": user_text, "timestamp": datetime.now().isoformat()})
+    conversation_history.append({
+        "role": "user",
+        "text": user_text,
+        "timestamp": datetime.now().isoformat()
+    })
 
     extraction_prompt = f"""
 You are helping to fill out a merchant processing application form. Based on the assistant's question and the user's response, extract only the field values using the exact field names from this list:
@@ -60,10 +80,11 @@ Respond ONLY with a valid JSON object using only the field names above.
 You are an AI assistant designed to help users fill out a Merchant Processing Application and Agreement form.
 Always respond in English, regardless of what language the user speaks. Do NOT repeat introductory greetings once the conversation has started.
 
-Greet the user only once if necessary, then move through the form one section at a time. For each step, ask concise questions that gather business name, DBA, legal entity, address, phone, and all other relevant fields.
-If the user says something unrelated or unclear, gently guide them back to the form-filling flow.
-Once all required information is gathered, repeat the data back to the user and ask for confirmation.
-Then say only: END OF CONVERSATION.
+Move through the form one section at a time. Ask concise, friendly questions to collect each required field (business name, DBA, entity type, address, phone, website, emails, initials, etc).
+
+If the user goes off-topic or speaks unclearly, gently guide them back.
+
+Once everything is filled, summarize the data and say only: END OF CONVERSATION.
 """
 
     try:
@@ -77,12 +98,15 @@ Then say only: END OF CONVERSATION.
         )
         assistant_reply = response['choices'][0]['message']['content'].strip()
 
-        # avoid repeating greeting every turn
-        if last_assistant_msg.startswith("Hello") and len(conversation_history) > 1 and assistant_reply.startswith("Hello"):
+        if last_assistant_msg.lower().startswith("hello") and len(conversation_history) > 1 and assistant_reply.lower().startswith("hello"):
             assistant_reply = "Thanks! Can you also tell me the business type (e.g., LLC, Corporation)?"
 
         last_assistant_msg = assistant_reply
-        conversation_history.append({"role": "assistant", "text": assistant_reply, "timestamp": datetime.now().isoformat()})
+        conversation_history.append({
+            "role": "assistant",
+            "text": assistant_reply,
+            "timestamp": datetime.now().isoformat()
+        })
 
         if "END OF CONVERSATION" in assistant_reply.upper():
             end_triggered = True
