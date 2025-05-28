@@ -16,14 +16,13 @@ from realtime_assistant import (
     conversation_history,
     get_initial_assistant_message
 )
-import openai
+from openai import OpenAI
 
 # Load environment variables
 load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
+client = OpenAI()
 eleven_client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
-# FastAPI setup
 app = FastAPI()
 
 # Enable CORS
@@ -35,15 +34,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Mount static directory
+# Static and templates setup
 app.mount("/static", StaticFiles(directory="static"), name="static")
-
-# Jinja2 template directory setup
 templates = Jinja2Templates(directory="templates")
 
+
 @app.get("/")
-async def serve_index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+async def serve_index():
+    return templates.TemplateResponse("index.html", {"request": {}})
 
 
 @app.get("/initial-message")
@@ -70,9 +68,8 @@ async def voice_stream(audio: UploadFile = File(...)):
             temp_audio.write(contents)
             temp_audio_path = temp_audio.name
 
-        # Transcribe using OpenAI Whisper
         with open(temp_audio_path, "rb") as audio_file:
-            result = openai.audio.transcriptions.create(
+            result = client.audio.transcriptions.create(
                 model="whisper-1",
                 file=audio_file,
                 language="en"
