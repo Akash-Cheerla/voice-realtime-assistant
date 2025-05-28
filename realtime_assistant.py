@@ -1,7 +1,8 @@
-# realtime_assistant.py — updated with get_initial_assistant_message and refined flow
+# realtime_assistant.py — enhanced with variable greetings and structured conversational flow
 
 import json
 import os
+import random
 from datetime import datetime
 import openai
 
@@ -23,13 +24,17 @@ conversation_history = []
 last_assistant_msg = ""
 end_triggered = False
 
+initial_greetings = [
+    "Hi there! Let’s get started on your Merchant Processing Application.",
+    "Hello! I'm here to guide you through your Merchant Application form. Shall we begin?",
+    "Welcome! I’ll be assisting you with your Merchant Processing details today.",
+    "Hey! Let’s work together to complete your Merchant Application step-by-step."
+]
+
 
 def get_initial_assistant_message():
     global last_assistant_msg
-    initial_message = (
-        "Hello! I'm here to assist you in filling out your Merchant Processing Application and Agreement form. "
-        "Let's start with the first section. \n\nCould you please provide the legal name of your business?"
-    )
+    initial_message = random.choice(initial_greetings) + "\n\nTo start, could you please provide the legal name of your business?"
     last_assistant_msg = initial_message
     conversation_history.append({
         "role": "assistant",
@@ -78,28 +83,31 @@ Respond ONLY with a valid JSON object using only the field names above.
 
     instruction_prompt = """
 You are an AI assistant designed to help users fill out a Merchant Processing Application and Agreement form.
-Always respond in English, regardless of what language the user speaks. Do NOT repeat introductory greetings once the conversation has started.
+Greet the user in a friendly way only once at the start. Do not repeat the greeting in future replies.
 
-Move through the form one section at a time. Ask concise, friendly questions to collect each required field (business name, DBA, entity type, address, phone, website, emails, initials, etc).
+Your task is to guide the user through each section of the form, asking relevant questions to extract the necessary information required.
+Ensure the tone is intelligent, friendly, and conversational — like Siri or ChatGPT. Keep questions short and helpful.
+DO NOT answer questions not related to the form.
 
-If the user goes off-topic or speaks unclearly, gently guide them back.
+Ask only one or two related questions at a time. For example, first ask for the business name, then the DBA, then address details, etc.
+For business types, legal fields, or MCC codes, give examples when needed.
 
-Once everything is filled, summarize the data and say only: END OF CONVERSATION.
+At the end, read back all collected details in a clear summary and say:
+“Thanks for confirming! It might take a few seconds to process your form...” and then respond ONLY with 'END OF CONVERSATION'.
 """
 
     try:
+        assistant_input = "\n".join([f"{msg['role'].capitalize()}: {msg['text']}" for msg in conversation_history[-6:]])
+
         response = openai.ChatCompletion.create(
             model="gpt-4",
             messages=[
                 {"role": "system", "content": instruction_prompt},
-                {"role": "user", "content": user_text}
+                {"role": "user", "content": assistant_input}
             ],
             temperature=0.3
         )
         assistant_reply = response['choices'][0]['message']['content'].strip()
-
-        if last_assistant_msg.lower().startswith("hello") and len(conversation_history) > 1 and assistant_reply.lower().startswith("hello"):
-            assistant_reply = "Thanks! Can you also tell me the business type (e.g., LLC, Corporation)?"
 
         last_assistant_msg = assistant_reply
         conversation_history.append({
@@ -115,4 +123,4 @@ Once everything is filled, summarize the data and say only: END OF CONVERSATION.
 
     except Exception as e:
         print("❌ Assistant generation failed:", e)
-        return "Sorry, I had trouble processing that. Can you repeat?"
+        return "Sorry, I had trouble processing that. Can you say it again?"

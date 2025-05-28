@@ -17,14 +17,14 @@ from realtime_assistant import (
 )
 import openai
 
-# Load env
+# Load environment variables
 load_dotenv()
 openai.api_key = os.getenv("OPENAI_API_KEY")
 eleven_client = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
 app = FastAPI()
 
-# CORS for frontend access
+# Allow frontend access
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -33,7 +33,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Static and index file setup
+# Static file mounting
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
 
@@ -45,13 +45,18 @@ async def serve_index():
 @app.get("/initial-message")
 async def initial_message():
     assistant_text = get_initial_assistant_message()
-    audio_reply = eleven_client.text_to_speech.convert(
-        voice_id="EXAVITQu4vr4xnSDxMaL",
-        model_id="eleven_monolingual_v1",
-        text=assistant_text
-    )
-    audio_bytes = b"".join(audio_reply)
-    audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+    try:
+        audio_reply = eleven_client.text_to_speech.convert(
+            voice_id="EXAVITQu4vr4xnSDxMaL",
+            model_id="eleven_monolingual_v1",
+            text=assistant_text
+        )
+        audio_bytes = b"".join(audio_reply)
+        audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+    except Exception as e:
+        print("🔊 ElevenLabs audio error:", e)
+        audio_base64 = None
+
     return JSONResponse({
         "assistant_text": assistant_text,
         "assistant_audio_base64": audio_base64
@@ -61,39 +66,39 @@ async def initial_message():
 @app.post("/voice-stream")
 async def voice_stream(audio: UploadFile = File(...)):
     try:
+        # Save incoming audio
         contents = await audio.read()
-        if not contents:
-            return JSONResponse({"error": "Empty audio received"}, status_code=400)
-
         with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as temp_audio:
             temp_audio.write(contents)
             temp_audio_path = temp_audio.name
 
-        # OpenAI Whisper transcription
+        # Transcribe using Whisper
         with open(temp_audio_path, "rb") as audio_file:
-            try:
-                result = openai.Audio.transcribe(
-                    model="whisper-1",
-                    file=audio_file,
-                    language="en"
-                )
-            except openai.OpenAIError as e:
-                print("❌ OpenAI Whisper error:", e)
-                return JSONResponse({"error": str(e)}, status_code=500)
+            result = openai.Audio.transcribe(
+                model="whisper-1",
+                file=audio_file,
+                language="en"
+            )
 
-        user_text = result.get("text", "").strip()
-        print(f"🎙️ USER SAID: {user_text}")
+        user_text = result["text"].strip()
+        print(f"🎤 USER SAID: {user_text}")
 
+        # Generate assistant reply and extract fields
         assistant_text = await process_transcribed_text(user_text)
-        print(f"🤖 ASSISTANT REPLY: {assistant_text}")
+        print(f"🧠 ASSISTANT REPLY: {assistant_text}")
 
-        audio_reply = eleven_client.text_to_speech.convert(
-            voice_id="EXAVITQu4vr4xnSDxMaL",
-            model_id="eleven_monolingual_v1",
-            text=assistant_text
-        )
-        audio_bytes = b"".join(audio_reply)
-        audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+        # Convert to speech
+        try:
+            audio_reply = eleven_client.text_to_speech.convert(
+                voice_id="EXAVITQu4vr4xnSDxMaL",
+                model_id="eleven_monolingual_v1",
+                text=assistant_text
+            )
+            audio_bytes = b"".join(audio_reply)
+            audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+        except Exception as e:
+            print("🎧 ElevenLabs speech error:", e)
+            audio_base64 = None
 
         return JSONResponse({
             "user_text": user_text,
