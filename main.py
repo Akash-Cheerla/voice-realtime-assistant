@@ -65,6 +65,7 @@ async def initial_message():
 
 @app.post("/voice-stream")
 async def voice_stream(audio: UploadFile = File(...)):
+    temp_audio_path = None
     try:
         # Save incoming audio
         contents = await audio.read()
@@ -72,7 +73,7 @@ async def voice_stream(audio: UploadFile = File(...)):
             temp_audio.write(contents)
             temp_audio_path = temp_audio.name
 
-        # Transcribe using Whisper
+        # Transcribe using OpenAI Whisper
         with open(temp_audio_path, "rb") as audio_file:
             result = openai.Audio.transcribe(
                 model="whisper-1",
@@ -87,7 +88,7 @@ async def voice_stream(audio: UploadFile = File(...)):
         assistant_text = await process_transcribed_text(user_text)
         print(f"🧠 ASSISTANT REPLY: {assistant_text}")
 
-        # Convert to speech
+        # Convert assistant reply to speech
         try:
             audio_reply = eleven_client.text_to_speech.convert(
                 voice_id="EXAVITQu4vr4xnSDxMaL",
@@ -111,6 +112,10 @@ async def voice_stream(audio: UploadFile = File(...)):
         print("❌ Error in /voice-stream:", e)
         traceback.print_exc()
         return JSONResponse({"error": str(e)}, status_code=500)
+
+    finally:
+        if temp_audio_path and os.path.exists(temp_audio_path):
+            os.remove(temp_audio_path)
 
 
 @app.get("/form-data")
