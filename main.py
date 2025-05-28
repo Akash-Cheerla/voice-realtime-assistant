@@ -62,19 +62,26 @@ async def initial_message():
 async def voice_stream(audio: UploadFile = File(...)):
     try:
         contents = await audio.read()
+        if not contents:
+            return JSONResponse({"error": "Empty audio received"}, status_code=400)
+
         with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as temp_audio:
             temp_audio.write(contents)
             temp_audio_path = temp_audio.name
 
         # OpenAI Whisper transcription
         with open(temp_audio_path, "rb") as audio_file:
-            result = openai.Audio.transcribe(
-                model="whisper-1",
-                file=audio_file,
-                language="en"
-            )
+            try:
+                result = openai.Audio.transcribe(
+                    model="whisper-1",
+                    file=audio_file,
+                    language="en"
+                )
+            except openai.OpenAIError as e:
+                print("❌ OpenAI Whisper error:", e)
+                return JSONResponse({"error": str(e)}, status_code=500)
 
-        user_text = result["text"].strip()
+        user_text = result.get("text", "").strip()
         print(f"🎙️ USER SAID: {user_text}")
 
         assistant_text = await process_transcribed_text(user_text)
