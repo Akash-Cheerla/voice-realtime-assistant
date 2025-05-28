@@ -65,7 +65,6 @@ async def initial_message():
 
 @app.post("/voice-stream")
 async def voice_stream(audio: UploadFile = File(...)):
-    temp_audio_path = None
     try:
         # Save incoming audio
         contents = await audio.read()
@@ -73,7 +72,7 @@ async def voice_stream(audio: UploadFile = File(...)):
             temp_audio.write(contents)
             temp_audio_path = temp_audio.name
 
-        # Transcribe using OpenAI Whisper
+        # Transcribe using Whisper
         with open(temp_audio_path, "rb") as audio_file:
             result = openai.Audio.transcribe(
                 model="whisper-1",
@@ -88,7 +87,7 @@ async def voice_stream(audio: UploadFile = File(...)):
         assistant_text = await process_transcribed_text(user_text)
         print(f"🧠 ASSISTANT REPLY: {assistant_text}")
 
-        # Convert assistant reply to speech
+        # Convert to speech
         try:
             audio_reply = eleven_client.text_to_speech.convert(
                 voice_id="EXAVITQu4vr4xnSDxMaL",
@@ -113,10 +112,6 @@ async def voice_stream(audio: UploadFile = File(...)):
         traceback.print_exc()
         return JSONResponse({"error": str(e)}, status_code=500)
 
-    finally:
-        if temp_audio_path and os.path.exists(temp_audio_path):
-            os.remove(temp_audio_path)
-
 
 @app.get("/form-data")
 async def get_form_data():
@@ -128,7 +123,9 @@ async def confirm(request: Request):
     try:
         body = await request.json()
         if body.get("confirmed"):
-            fill_pdf(form_data)
+            input_pdf_path = "form_template.pdf"  # Make sure this PDF exists
+            output_pdf_path = "filled_form.pdf"
+            fill_pdf(input_pdf_path, output_pdf_path, form_data)
             return JSONResponse({"status": "filled"})
         return JSONResponse({"status": "not confirmed"}, status_code=400)
     except Exception as e:
