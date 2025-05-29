@@ -119,7 +119,10 @@
         isAssistantSpeaking = true;
         document.getElementById("statusLabel").textContent = "🤖 Assistant is speaking...";
         const audio = new Audio("data:audio/mp3;base64," + data.assistant_audio_base64);
-        await audio.play().catch(() => {});
+        audio.play().catch(() => {
+          document.getElementById("log").innerHTML += `<div class='assistant'>🔈 Tap anywhere to hear the assistant.</div>`;
+          document.body.addEventListener("click", () => audio.play(), { once: true });
+        });
         audio.onended = () => {
           isAssistantSpeaking = false;
           document.getElementById("statusLabel").textContent = "🎤 You may speak now...";
@@ -182,7 +185,10 @@
           isAssistantSpeaking = true;
           document.getElementById("statusLabel").textContent = "🤖 Assistant is speaking...";
           const audio = new Audio("data:audio/mp3;base64," + result.audio_base64);
-          audio.play();
+          audio.play().catch(() => {
+            document.getElementById("log").innerHTML += `<div class='assistant'>🔈 Tap to hear reply.</div>`;
+            document.body.addEventListener("click", () => audio.play(), { once: true });
+          });
           audio.onended = () => {
             isAssistantSpeaking = false;
             if (!isConversationEnded) {
