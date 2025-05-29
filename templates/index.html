@@ -47,12 +47,12 @@
       margin-top: 20px;
       display: none;
     }
-    pre {
-      background: #272822;
-      color: #f8f8f2;
-      padding: 10px;
-      border-radius: 8px;
-      overflow-x: auto;
+    #editableForm input {
+      width: 100%;
+      margin-bottom: 8px;
+      padding: 6px;
+      border: 1px solid #ccc;
+      border-radius: 4px;
     }
     button {
       padding: 10px 20px;
@@ -77,9 +77,9 @@
     <div id="statusLabel"></div>
 
     <div id="formSection">
-      <h3>📝 Live Form Data</h3>
-      <pre id="formData"></pre>
-      <button onclick="confirmAndGenerate()">✅ Confirm & Generate PDF</button>
+      <h3>📝 Review & Edit Form Data</h3>
+      <form id="editableForm"></form>
+      <button id="confirmBtn" onclick="confirmAndGenerate()" disabled>✅ Confirm & Generate PDF</button>
       <a id="downloadLink" href="/download" download style="display:none">📄 Download Filled PDF</a>
       <button id="resetBtn" onclick="resetConversation()" style="display:none; background-color: #636e72;">🔁 Start Over</button>
     </div>
@@ -88,14 +88,10 @@
   </div>
 
   <script>
-    let mediaRecorder;
-    let audioChunks = [];
-    let micStream;
-    let vadInterval;
+    let mediaRecorder, audioChunks = [], micStream, vadInterval;
     let audioContext, analyser, sourceNode;
-    let isRecording = false;
-    let isAssistantSpeaking = false;
-    let isConversationEnded = false;
+    let isRecording = false, isAssistantSpeaking = false, isConversationEnded = false;
+    let latestFormData = {};
 
     async function requestMicAndStart() {
       try {
@@ -120,7 +116,6 @@
         document.getElementById("statusLabel").textContent = "🤖 Assistant is speaking...";
         const audio = new Audio("data:audio/mp3;base64," + data.assistant_audio_base64);
         audio.play().catch(() => {
-          document.getElementById("log").innerHTML += `<div class='assistant'>🔈 Tap anywhere to hear the assistant.</div>`;
           document.body.addEventListener("click", () => audio.play(), { once: true });
         });
         audio.onended = () => {
@@ -172,36 +167,30 @@
         const response = await fetch("/voice-stream", { method: "POST", body: formData });
         const result = await response.json();
 
-        if (result.user_text) {
+        if (result.user_text)
           document.getElementById("log").innerHTML += `<div class='user'>👤 ${result.user_text}</div>`;
-        }
         if (result.assistant_text) {
           document.getElementById("log").innerHTML += `<div class='assistant'>🤖 ${result.assistant_text}</div>`;
           if (result.assistant_text.includes("END OF CONVERSATION")) {
             isConversationEnded = true;
+            document.getElementById("confirmBtn").disabled = false;
           }
         }
         if (result.audio_base64) {
           isAssistantSpeaking = true;
           document.getElementById("statusLabel").textContent = "🤖 Assistant is speaking...";
           const audio = new Audio("data:audio/mp3;base64," + result.audio_base64);
-          audio.play().catch(() => {
-            document.getElementById("log").innerHTML += `<div class='assistant'>🔈 Tap to hear reply.</div>`;
-            document.body.addEventListener("click", () => audio.play(), { once: true });
-          });
+          audio.play();
           audio.onended = () => {
             isAssistantSpeaking = false;
-            if (!isConversationEnded) {
-              document.getElementById("statusLabel").textContent = "🎤 You may speak now...";
-              startVAD();
-            } else {
-              document.getElementById("statusLabel").textContent = "✅ Thank you! The form is complete.";
-              document.getElementById("resetBtn").style.display = "inline-block";
-            }
+            document.getElementById("statusLabel").textContent = isConversationEnded ? "✅ Ready to confirm." : "🎤 You may speak now...";
+            if (!isConversationEnded) startVAD();
+            else document.getElementById("resetBtn").style.display = "inline-block";
           };
         }
         if (result.form_data) {
-          document.getElementById("formData").textContent = JSON.stringify(result.form_data, null, 2);
+          latestFormData = result.form_data;
+          updateEditableForm(result.form_data);
           document.getElementById("formSection").style.display = "block";
         }
       } catch (err) {
@@ -209,15 +198,40 @@
       }
     }
 
+    function updateEditableForm(data) {
+      const form = document.getElementById("editableForm");
+      form.innerHTML = "";
+      for (const key in data) {
+        const label = document.createElement("label");
+        label.textContent = key;
+        const input = document.createElement("input");
+        input.name = key;
+        input.value = data[key] || "";
+        form.appendChild(label);
+        form.appendChild(input);
+      }
+    }
+
     async function confirmAndGenerate() {
+      const formElements = document.getElementById("editableForm").elements;
+      const updatedForm = {};
+      for (let i = 0; i < formElements.length; i++) {
+        if (formElements[i].name) {
+          updatedForm[formElements[i].name] = formElements[i].value;
+        }
+      }
+
       const res = await fetch('/confirm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirmed: true })
+        body: JSON.stringify({ confirmed: true, form_data: updatedForm })
       });
+
       const result = await res.json();
       if (result.status === 'filled') {
         document.getElementById('downloadLink').style.display = 'inline-block';
+      } else {
+        alert("❌ Cannot generate PDF. Make sure the assistant completed the conversation.");
       }
     }
 
@@ -229,9 +243,10 @@
       document.getElementById("log").innerHTML = "Initializing assistant...";
       document.getElementById("statusLabel").textContent = "";
       document.getElementById("formSection").style.display = "none";
-      document.getElementById("formData").textContent = "";
+      document.getElementById("editableForm").innerHTML = "";
       document.getElementById("downloadLink").style.display = "none";
       document.getElementById("resetBtn").style.display = "none";
+      document.getElementById("confirmBtn").disabled = true;
       startAssistantFlow();
     }
 

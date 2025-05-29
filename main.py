@@ -73,13 +73,12 @@ async def voice_stream(audio: UploadFile = File(...)):
         })
 
     try:
-        # Save incoming audio
         contents = await audio.read()
         with tempfile.NamedTemporaryFile(delete=False, suffix=".webm") as temp_audio:
             temp_audio.write(contents)
             temp_audio_path = temp_audio.name
 
-        # Transcribe using Whisper
+        # Transcribe audio with Whisper
         with open(temp_audio_path, "rb") as audio_file:
             result = openai.Audio.transcribe(
                 model="whisper-1",
@@ -90,11 +89,9 @@ async def voice_stream(audio: UploadFile = File(...)):
         user_text = result["text"].strip()
         print(f"🎤 USER SAID: {user_text}")
 
-        # Generate assistant reply and extract fields
         assistant_text = await process_transcribed_text(user_text)
         print(f"🧠 ASSISTANT REPLY: {assistant_text}")
 
-        # Convert to speech
         try:
             audio_reply = eleven_client.text_to_speech.convert(
                 voice_id="EXAVITQu4vr4xnSDxMaL",
@@ -127,15 +124,21 @@ async def get_form_data():
 async def confirm(request: Request):
     try:
         body = await request.json()
+        if not end_triggered:
+            return JSONResponse({"error": "Conversation has not ended yet."}, status_code=400)
         if body.get("confirmed"):
-            if not end_triggered:
-                return JSONResponse({"error": "Conversation has not ended yet."}, status_code=400)
+            updated_data = body.get("form_data")
+            if updated_data:
+                for key in form_data:
+                    if key in updated_data:
+                        form_data[key] = updated_data[key]
             fill_pdf("form_template.pdf", "filled_form.pdf", form_data)
             return JSONResponse({"status": "filled"})
         return JSONResponse({"status": "not confirmed"}, status_code=400)
     except Exception as e:
         print("❌ Error in /confirm:", e)
         return JSONResponse({"error": str(e)}, status_code=500)
+
 
 @app.get("/download")
 async def download_pdf():
