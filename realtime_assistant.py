@@ -30,6 +30,7 @@ form_data = {
 conversation_history = []
 last_assistant_msg = ""
 end_triggered = False
+summary_given = False
 
 
 def get_initial_assistant_message():
@@ -51,8 +52,23 @@ def get_initial_assistant_message():
     return initial_message
 
 
+def build_summary_from_form():
+    summary_lines = []
+    for field, value in form_data.items():
+        if value:
+            field_name = field.replace("MCCSICDescription", "MCC SIC Description").replace("DBAName", "DBA Name")
+            field_name = field_name.replace("LegalCorporateName", "Legal Corporate Name").replace("BusinessAddress", "Business Address")
+            field_name = field_name.replace("BillingAddress", "Billing Address").replace("CustomerServiceEmail", "Customer Service Email")
+            field_name = field_name.replace("RetrievalRequestDestination", "Retrieval Request Destination")
+            field_name = ' '.join([w.capitalize() for w in field_name.split()])
+            summary_lines.append(f"{field_name}: {value}")
+    summary = "\n\nHere is a summary of the information collected:\n\n" + "\n".join(summary_lines)
+    summary += "\n\nPlease confirm if all the details are correct. Once confirmed, it may take a few seconds to process."
+    return summary
+
+
 async def process_transcribed_text(user_text):
-    global last_assistant_msg, end_triggered
+    global last_assistant_msg, end_triggered, summary_given
 
     conversation_history.append({
         "role": "user",
@@ -60,6 +76,7 @@ async def process_transcribed_text(user_text):
         "timestamp": datetime.now().isoformat()
     })
 
+    # Attempt to extract fields
     extraction_prompt = f"""
 You are helping fill out a Merchant Processing Application. Based on the assistant's last question and the user's reply, extract any relevant fields from this list:
 
@@ -90,15 +107,32 @@ Return only a valid JSON object using those exact field names. If nothing applie
 
     all_fields_filled = all(value is not None for value in form_data.values())
 
-    # If all fields are filled, generate final summary from actual form_data
-    if all_fields_filled:
-        summary = generate_summary_from_form_data()
+    # Check if it's time to summarize
+    if all_fields_filled and not summary_given:
+        summary_given = True
+        summary = build_summary_from_form()
+        last_assistant_msg = summary
+        conversation_history.append({
+            "role": "assistant",
+            "text": summary,
+            "timestamp": datetime.now().isoformat()
+        })
+        return summary
+
+    # Check if user confirmed
+    if summary_given and "confirm" in user_text.lower() or "correct" in user_text.lower():
         end_triggered = True
-        assistant_reply = (
-            f"{summary}\n\nPlease confirm if all the details are correct. Once confirmed, it may take a few seconds to process."
-        )
-    else:
-        instruction_prompt = """
+        final_msg = "END OF CONVERSATION"
+        last_assistant_msg = final_msg
+        conversation_history.append({
+            "role": "assistant",
+            "text": final_msg,
+            "timestamp": datetime.now().isoformat()
+        })
+        return final_msg
+
+    # Otherwise, keep asking remaining questions
+    instruction_prompt = """
 You are a conversational AI assistant helping users fill out a Merchant Processing Application.
 
 Be intelligent, friendly, and natural—like Siri or ChatGPT. Guide the user through collecting the following fields only:
@@ -126,73 +160,47 @@ Ask one or two natural, context-aware questions at a time. Provide gentle exampl
 
 If the user says something irrelevant, gently steer them back.
 
-Once all fields above are filled, summarize everything clearly and ask for confirmation. If the user confirms, say “END OF CONVERSATION” — no more questions after that.
+DO NOT REPEAT THE SUMMARY. DO NOT REPEAT END OF CONVERSATION.
 """
 
-        try:
-            messages = [
-                {"role": "system", "content": instruction_prompt}
-            ] + [
-                {"role": msg["role"], "content": msg["text"]}
-                for msg in conversation_history[-12:]
-            ]
+    try:
+        messages = [
+            {"role": "system", "content": instruction_prompt}
+        ] + [
+            {"role": msg["role"], "content": msg["text"]}
+            for msg in conversation_history[-12:]
+        ]
 
-            response = openai.ChatCompletion.create(
-                model="gpt-4",
-                messages=messages,
-                temperature=0.4
-            )
-            assistant_reply = response['choices'][0]['message']['content'].strip()
+        response = openai.ChatCompletion.create(
+            model="gpt-4",
+            messages=messages,
+            temperature=0.4
+        )
+        assistant_reply = response['choices'][0]['message']['content'].strip()
 
-        except Exception as e:
-            print("❌ Assistant generation error:", e)
-            assistant_reply = "Sorry, I had trouble with that. Could you please repeat?"
+        # Don't allow assistant to repeat summary or END OF CONVERSATION if already done
+        if summary_given and ("summary" in assistant_reply.lower() or "END OF CONVERSATION" in assistant_reply.upper()):
+            return ""
 
-    last_assistant_msg = assistant_reply
-    conversation_history.append({
-        "role": "assistant",
-        "text": assistant_reply,
-        "timestamp": datetime.now().isoformat()
-    })
+        last_assistant_msg = assistant_reply
+        conversation_history.append({
+            "role": "assistant",
+            "text": assistant_reply,
+            "timestamp": datetime.now().isoformat()
+        })
 
-    if "END OF CONVERSATION" in assistant_reply.upper():
-        end_triggered = True
+        return assistant_reply
 
-    return assistant_reply
-
-
-def generate_summary_from_form_data():
-    def show(value):
-        return value if value else "Not provided"
-
-    summary = (
-        f"Here is a summary of the information collected:\n\n"
-        f" DBA Name: {show(form_data['DBAName'])}\n"
-        f" Legal Corporate Name: {show(form_data['LegalCorporateName'])}\n"
-        f" Business Address: {show(form_data['BusinessAddress'])}\n"
-        f" Billing Address: {show(form_data['BillingAddress'])}\n"
-        f" City: {show(form_data['City'])}\n"
-        f" State: {show(form_data['State'])}\n"
-        f" Zip: {show(form_data['Zip'])}\n"
-        f" Phone: {show(form_data['Phone'])}\n"
-        f" Fax: {show(form_data['Fax'])}\n"
-        f" Contact Name: {show(form_data['ContactName'])}\n"
-        f" Business Email: {show(form_data['BusinessEmail'])}\n"
-        f" Contact Phone: {show(form_data['ContactPhone'])}\n"
-        f" Contact Fax: {show(form_data['ContactFax'])}\n"
-        f" Contact Email: {show(form_data['ContactEmail'])}\n"
-        f" Website: {show(form_data['Website'])}\n"
-        f" Customer Service Email: {show(form_data['CustomerServiceEmail'])}\n"
-        f" Retrieval Request Destination: {show(form_data['RetrievalRequestDestination'])}\n"
-        f" MCC SIC Description: {show(form_data['MCCSICDescription'])}"
-    )
-    return summary
+    except Exception as e:
+        print("❌ Assistant generation error:", e)
+        return "Sorry, I had trouble with that. Could you please repeat?"
 
 
 def reset_assistant_state():
-    global conversation_history, last_assistant_msg, end_triggered
+    global conversation_history, last_assistant_msg, end_triggered, summary_given
     conversation_history.clear()
     last_assistant_msg = ""
     end_triggered = False
+    summary_given = False
     for key in form_data:
         form_data[key] = None
