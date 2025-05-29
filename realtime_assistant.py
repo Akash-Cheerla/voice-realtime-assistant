@@ -151,3 +151,11 @@ Once all fields above are filled, summarize everything clearly and ask for confi
     except Exception as e:
         print("❌ Assistant generation error:", e)
         return "Sorry, I had trouble with that. Could you please repeat?"
+
+def reset_assistant_state():
+    global conversation_history, last_assistant_msg, end_triggered
+    conversation_history.clear()
+    last_assistant_msg = ""
+    end_triggered = False
+    for key in form_data:
+        form_data[key] = None
