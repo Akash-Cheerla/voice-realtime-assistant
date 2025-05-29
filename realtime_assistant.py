@@ -31,6 +31,7 @@ conversation_history = []
 last_assistant_msg = ""
 end_triggered = False
 summary_given = False
+summary_confirmed = False
 
 
 def get_initial_assistant_message():
@@ -68,7 +69,7 @@ def build_summary_from_form():
 
 
 async def process_transcribed_text(user_text):
-    global last_assistant_msg, end_triggered, summary_given
+    global last_assistant_msg, end_triggered, summary_given, summary_confirmed
 
     conversation_history.append({
         "role": "user",
@@ -76,7 +77,7 @@ async def process_transcribed_text(user_text):
         "timestamp": datetime.now().isoformat()
     })
 
-    # Attempt to extract fields
+    # Extract structured fields from user response
     extraction_prompt = f"""
 You are helping fill out a Merchant Processing Application. Based on the assistant's last question and the user's reply, extract any relevant fields from this list:
 
@@ -107,7 +108,7 @@ Return only a valid JSON object using those exact field names. If nothing applie
 
     all_fields_filled = all(value is not None for value in form_data.values())
 
-    # Check if it's time to summarize
+    # Show summary only once
     if all_fields_filled and not summary_given:
         summary_given = True
         summary = build_summary_from_form()
@@ -119,17 +120,19 @@ Return only a valid JSON object using those exact field names. If nothing applie
         })
         return summary
 
-    # Check if user confirmed
-    if summary_given and "confirm" in user_text.lower() or "correct" in user_text.lower():
-        end_triggered = True
-        final_msg = "END OF CONVERSATION"
-        last_assistant_msg = final_msg
-        conversation_history.append({
-            "role": "assistant",
-            "text": final_msg,
-            "timestamp": datetime.now().isoformat()
-        })
-        return final_msg
+    # Check for confirmation after summary
+    if summary_given and not summary_confirmed:
+        if any(phrase in user_text.lower() for phrase in ["yes", "correct", "confirmed", "looks good", "all good"]):
+            summary_confirmed = True
+            end_triggered = True
+            final_msg = "END OF CONVERSATION"
+            last_assistant_msg = final_msg
+            conversation_history.append({
+                "role": "assistant",
+                "text": final_msg,
+                "timestamp": datetime.now().isoformat()
+            })
+            return final_msg
 
     # Otherwise, keep asking remaining questions
     instruction_prompt = """
@@ -158,8 +161,6 @@ Be intelligent, friendly, and natural—like Siri or ChatGPT. Guide the user thr
 
 Ask one or two natural, context-aware questions at a time. Provide gentle examples if needed. Avoid robotic phrasing.
 
-If the user says something irrelevant, gently steer them back.
-
 DO NOT REPEAT THE SUMMARY. DO NOT REPEAT END OF CONVERSATION.
 """
 
@@ -178,9 +179,8 @@ DO NOT REPEAT THE SUMMARY. DO NOT REPEAT END OF CONVERSATION.
         )
         assistant_reply = response['choices'][0]['message']['content'].strip()
 
-        # Don't allow assistant to repeat summary or END OF CONVERSATION if already done
-        if summary_given and ("summary" in assistant_reply.lower() or "END OF CONVERSATION" in assistant_reply.upper()):
-            return ""
+        if summary_given and ("summary" in assistant_reply.lower() or "end of conversation" in assistant_reply.lower()):
+            return ""  # avoid repetition
 
         last_assistant_msg = assistant_reply
         conversation_history.append({
@@ -197,10 +197,11 @@ DO NOT REPEAT THE SUMMARY. DO NOT REPEAT END OF CONVERSATION.
 
 
 def reset_assistant_state():
-    global conversation_history, last_assistant_msg, end_triggered, summary_given
+    global conversation_history, last_assistant_msg, end_triggered, summary_given, summary_confirmed
     conversation_history.clear()
     last_assistant_msg = ""
     end_triggered = False
     summary_given = False
+    summary_confirmed = False
     for key in form_data:
         form_data[key] = None
