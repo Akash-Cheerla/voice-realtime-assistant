@@ -9,3 +9,5 @@ elevenlabs
 jinja2
 openai==0.28.1
 python-dotenv
+ffmpeg-python
+pydub

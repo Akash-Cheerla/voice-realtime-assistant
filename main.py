@@ -14,7 +14,8 @@ from realtime_assistant import (
     form_data,
     conversation_history,
     get_initial_assistant_message,
-    end_triggered
+    end_triggered,
+    reset_assistant_state
 )
 import openai
 
@@ -43,7 +44,6 @@ async def serve_index():
 
 @app.get("/initial-message")
 async def initial_message():
-    from realtime_assistant import get_initial_assistant_message
     assistant_text = get_initial_assistant_message()
     try:
         audio_reply = eleven_client.text_to_speech.convert(
@@ -64,7 +64,6 @@ async def initial_message():
 
 @app.post("/voice-stream")
 async def voice_stream(audio: UploadFile = File(...)):
-    from realtime_assistant import end_triggered
     if end_triggered:
         return JSONResponse({
             "user_text": "",
@@ -126,7 +125,6 @@ async def get_form_data():
 
 @app.post("/confirm")
 async def confirm(request: Request):
-    from realtime_assistant import end_triggered
     try:
         body = await request.json()
         if body.get("confirmed"):
@@ -145,6 +143,5 @@ async def download_pdf():
 
 @app.post("/reset")
 async def reset():
-    from realtime_assistant import reset_assistant_state
     reset_assistant_state()
     return JSONResponse({"status": "reset successful"})
