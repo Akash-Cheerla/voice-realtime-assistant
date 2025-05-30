@@ -124,13 +124,14 @@ async def confirm(request: Request):
     try:
         body = await request.json()
         if body.get("confirmed"):
+            if not end_triggered:
+                return JSONResponse({"error": "Conversation has not ended yet."}, status_code=400)
             fill_pdf("form_template.pdf", "filled_form.pdf", form_data)
             return JSONResponse({"status": "filled"})
         return JSONResponse({"status": "not confirmed"}, status_code=400)
     except Exception as e:
         print("❌ Error in /confirm:", e)
         return JSONResponse({"error": str(e)}, status_code=500)
-
 
 @app.get("/download")
 async def download_pdf():

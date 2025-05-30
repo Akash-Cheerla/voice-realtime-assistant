@@ -76,7 +76,7 @@
 </head>
 <body>
   <div id="container">
-    <h1>🎙️ Talk to Assistant</h1>
+    <h1>🎙️ FRI Merchant Application Voice Assistant</h1>
     <div id="log">Initializing assistant...</div>
     <div id="statusLabel"></div>
 
@@ -85,7 +85,7 @@
       <form id="formEditor">
         <!-- Fields will be inserted dynamically -->
       </form>
-      <button onclick="confirmAndGenerate()">✅ Confirm & Generate PDF</button>
+      <button onclick="confirmAndGenerate()">Confirm & Generate PDF</button>
       <a id="downloadLink" href="/download" download style="display:none; margin-left: 10px;">📄 Download Filled PDF</a>
       <button id="resetBtn" onclick="resetConversation()" style="display:none; background-color: #636e72; margin-left: 10px;">🔁 Start Over</button>
     </div>
@@ -258,7 +258,7 @@
 
     window.onload = () => {
       const startBtn = document.createElement("button");
-      startBtn.textContent = "▶️ Start Assistant";
+      startBtn.textContent = "▶️ Start Assistant (Grants Microphone access)";
       startBtn.style.marginTop = "10px";
       startBtn.onclick = () => {
         startBtn.remove();
