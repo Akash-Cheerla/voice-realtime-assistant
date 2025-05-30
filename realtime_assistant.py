@@ -5,35 +5,59 @@ from datetime import datetime
 import openai
 
 openai.api_key = os.getenv("OPENAI_API_KEY")
+form_data = {"SiteCompanyName1": None,
+              "SiteAddress": None, 
+              "SiteCity": None, 
+              "SiteState": None, 
+              "SiteZip": None, 
+              "SiteVoice": None, 
+              "SiteFax": None, 
+              "CorporateCompanyName1": None, 
+              "CorporateAddress": None, 
+              "CorporateCity": None,
+                "CorporateState": None, 
+                "CorporateZip": None, 
+                "CorporateName": None, 
+                "SiteEmail": None, 
+                "CorporateVoice": None, 
+                "CorporateFax": None, 
+                "BusinessWebsite": None, 
+                "CorporateEmail": None,
+                  "CustomerSvcEmail": None,
+                "AppRetrievalMail": None, 
+                "AppRetrievalFax": None, 
+                "AppRetrievalFaxNumber": None, 
+                "MCC-Desc": None, 
+                "signer1signature1":None,
+                "MerchantInitials1":None
+                }
 
-form_data = {
-    "SiteCompanyName1": None,
-    "CorporateCompanyName1": None,
-    "SiteAddress": None,
-    "CorporateAddress": None,
-    "SiteCity": None,
-    "SiteState": None,
-    "SiteZip": None,
-    "SiteVoice": None,
-    "SiteFax": None,
-    "CorporateVoice": None,
-    "CorporateFax": None,
-    "SiteEmail": None,
-    "CorporateEmail": None,
-    "BusinessWebsite": None,
-    "CustomerSvcEmail": None,
-    "AppRetrievalMail": None,
-    "AppRetrievalFax": None,
-    "AppRetrievalFaxNumber": None,
-    "MCC-Desc": None,
-    "MerchantInitials1": None,
-    "signer1signature1": None,
-}
+# form_data = {
+#     "DBAName": None,
+#     "LegalCorporateName": None,
+#     "BusinessAddress": None,
+#     "BillingAddress": None,
+#     "City": None,
+#     "State": None,
+#     "Zip": None,
+#     "Phone": None,
+#     "Fax": None,
+#     "ContactName": None,
+#     "BusinessEmail": None,
+#     "ContactPhone": None,
+#     "ContactFax": None,
+#     "ContactEmail": None,
+#     "Website": None,
+#     "CustomerServiceEmail": None,
+#     "RetrievalRequestDestination": None,
+#     "MCCSICDescription": None
+# }
 
 conversation_history = []
 last_assistant_msg = ""
 end_triggered = False
 summary_given = False
+summary_confirmed = False
 
 
 def get_initial_assistant_message():
@@ -59,25 +83,19 @@ def build_summary_from_form():
     summary_lines = []
     for field, value in form_data.items():
         if value:
-            label = field.replace("SiteCompanyName1", "DBA Name").replace("CorporateCompanyName1", "Legal Corporate Name")\
-                .replace("SiteAddress", "Business Address").replace("CorporateAddress", "Billing Address")\
-                .replace("SiteCity", "City").replace("SiteState", "State").replace("SiteZip", "Zip")\
-                .replace("SiteVoice", "Phone").replace("SiteFax", "Fax").replace("CorporateVoice", "Contact Phone")\
-                .replace("CorporateFax", "Contact Fax").replace("SiteEmail", "Business Email")\
-                .replace("CorporateEmail", "Contact Email").replace("BusinessWebsite", "Website")\
-                .replace("CustomerSvcEmail", "Customer Service Email")\
-                .replace("AppRetrievalMail", "Send Retrieval Requests to Business Address")\
-                .replace("AppRetrievalFax", "Send Retrieval Requests to Fax")\
-                .replace("AppRetrievalFaxNumber", "Retrieval Request Fax Number")\
-                .replace("MCC-Desc", "MCC SIC Description")\
-                .replace("MerchantInitials1", "Initials").replace("signer1signature1", "Merchant Signature")
-            summary_lines.append(f"{label}: {value}")
-    return "\n\nHere is a summary of the information collected:\n\n" + "\n".join(summary_lines) + \
-        "\n\nPlease confirm if all the details are correct. Once confirmed, it may take a few seconds to process."
+            field_name = field.replace("MCCSICDescription", "MCC SIC Description").replace("DBAName", "DBA Name")
+            field_name = field_name.replace("LegalCorporateName", "Legal Corporate Name").replace("BusinessAddress", "Business Address")
+            field_name = field_name.replace("BillingAddress", "Billing Address").replace("CustomerServiceEmail", "Customer Service Email")
+            field_name = field_name.replace("RetrievalRequestDestination", "Retrieval Request Destination")
+            field_name = ' '.join([w.capitalize() for w in field_name.split()])
+            summary_lines.append(f"{field_name}: {value}")
+    summary = "\n\nHere is a summary of the information collected:\n\n" + "\n".join(summary_lines)
+    summary += "\n\nPlease confirm if all the details are correct. Once confirmed, it may take a few seconds to process."
+    return summary
 
 
 async def process_transcribed_text(user_text):
-    global last_assistant_msg, end_triggered, summary_given
+    global last_assistant_msg, end_triggered, summary_given, summary_confirmed
 
     conversation_history.append({
         "role": "user",
@@ -85,17 +103,16 @@ async def process_transcribed_text(user_text):
         "timestamp": datetime.now().isoformat()
     })
 
-    # Field extraction
+    # Extract structured fields from user response
     extraction_prompt = f"""
-You are helping fill out a Merchant Processing Application. Extract only relevant fields from this list:
+You are helping fill out a Merchant Processing Application. Based on the assistant's last question and the user's reply, extract any relevant fields from this list:
 
 {list(form_data.keys())}
 
 Assistant: {last_assistant_msg}
 User: {user_text}
 
-Return a valid JSON with any matched fields. Use booleans for checkboxes like AppRetrievalMail or AppRetrievalFax.
-If nothing matches, return {{}}
+Return only a valid JSON object using those exact field names. If nothing applies, return {{}}.
 """
 
     try:
@@ -115,13 +132,9 @@ If nothing matches, return {{}}
     except Exception as e:
         print("⚠️ Field extraction error:", e)
 
-    all_fields_filled = all(form_data[k] is not None for k in [
-        "SiteCompanyName1", "CorporateCompanyName1", "SiteAddress", "SiteCity", "SiteState", "SiteZip",
-        "SiteVoice", "CorporateVoice", "SiteEmail", "CorporateEmail", "BusinessWebsite", "CustomerSvcEmail",
-        "AppRetrievalMail", "AppRetrievalFax", "MCC-Desc"
-    ])
+    all_fields_filled = all(value is not None for value in form_data.values())
 
-    # Give summary only once
+    # Show summary only once
     if all_fields_filled and not summary_given:
         summary_given = True
         summary = build_summary_from_form()
@@ -133,44 +146,60 @@ If nothing matches, return {{}}
         })
         return summary
 
-    # End conversation if confirmed
-    if summary_given and any(w in user_text.lower() for w in ["yes", "confirmed", "correct", "that's right"]):
-        end_triggered = True
-        final_msg = "END OF CONVERSATION"
-        last_assistant_msg = final_msg
-        conversation_history.append({
-            "role": "assistant",
-            "text": final_msg,
-            "timestamp": datetime.now().isoformat()
-        })
-        return final_msg
+    # Check for confirmation after summary
+    if summary_given and not summary_confirmed:
+        if any(phrase in user_text.lower() for phrase in ["yes", "correct", "confirmed", "looks good", "all good"]):
+            summary_confirmed = True
+            end_triggered = True
+            final_msg = "END OF CONVERSATION"
+            last_assistant_msg = final_msg
+            conversation_history.append({
+                "role": "assistant",
+                "text": final_msg,
+                "timestamp": datetime.now().isoformat()
+            })
+            return final_msg
 
-    # Continue assistant flow
+    # Otherwise, keep asking remaining questions
     instruction_prompt = """
-You are a friendly AI assistant helping the user fill out a Merchant Application. Only ask for the following:
+You are a conversational AI assistant helping users fill out a Merchant Processing Application.
 
-- DBA Name
-- Legal Corporate Name
-- Business Address
-- Billing Address (if different)
-- City, State, Zip
-- Phone / Fax / Contact Name / Contact Phone / Contact Email
-- Business Email
+Be intelligent, friendly, and natural—like Siri or ChatGPT. Guide the user through collecting the following fields only:
+
+- DBAName
+- LegalCorporateName
+- BusinessAddress
+- BillingAddress
+- City
+- State
+- Zip
+- Phone
+- Fax
+- ContactName
+- BusinessEmail
+- ContactPhone
+- ContactFax
+- ContactEmail
 - Website
-- Customer Service Email
-- Send Retrieval Requests: AppRetrievalMail (business address), AppRetrievalFax (fax) as booleans
-- Retrieval Request Fax Number
-- MCC/SIC Description
-- Initials and Merchant Signature
+- CustomerServiceEmail
+- RetrievalRequestDestination
+- MCCSICDescription
 
-Only ask 1–2 questions at a time. When everything is filled, summarize exactly once. Wait for confirmation. Then say "END OF CONVERSATION" and stop.
+Ask one or two natural, context-aware questions at a time. Provide gentle examples if needed. Avoid robotic phrasing.
+Always prioritize privacy and remind the user not to share sensitive information unless necessary for the form. For sections requiring specific types of data like percentages, business types, or legal requirements, 
+offer examples to aid in understanding.Once all these fields are collected, read back the entire collected information to the user and ask them to confirm it and mention that it may take a few seconds to process all the information .
+ After they confirm respond with 'END OF CONVERSATION' and nothing else.
 
-DO NOT repeat the summary. DO NOT say END OF CONVERSATION more than once.
+DO NOT REPEAT THE SUMMARY. DO NOT REPEAT END OF CONVERSATION.
 """
 
     try:
-        messages = [{"role": "system", "content": instruction_prompt}]
-        messages += [{"role": m["role"], "content": m["text"]} for m in conversation_history[-12:]]
+        messages = [
+            {"role": "system", "content": instruction_prompt}
+        ] + [
+            {"role": msg["role"], "content": msg["text"]}
+            for msg in conversation_history[-12:]
+        ]
 
         response = openai.ChatCompletion.create(
             model="gpt-4",
@@ -179,9 +208,8 @@ DO NOT repeat the summary. DO NOT say END OF CONVERSATION more than once.
         )
         assistant_reply = response['choices'][0]['message']['content'].strip()
 
-        # Avoid repeated ending
-        if summary_given and ("summary" in assistant_reply.lower() or "END OF CONVERSATION" in assistant_reply.upper()):
-            return ""
+        if summary_given and ("summary" in assistant_reply.lower() or "end of conversation" in assistant_reply.lower()):
+            return ""  # avoid repetition
 
         last_assistant_msg = assistant_reply
         conversation_history.append({
@@ -198,10 +226,11 @@ DO NOT repeat the summary. DO NOT say END OF CONVERSATION more than once.
 
 
 def reset_assistant_state():
-    global conversation_history, last_assistant_msg, end_triggered, summary_given
+    global conversation_history, last_assistant_msg, end_triggered, summary_given, summary_confirmed
     conversation_history.clear()
     last_assistant_msg = ""
     end_triggered = False
     summary_given = False
+    summary_confirmed = False
     for key in form_data:
         form_data[key] = None
