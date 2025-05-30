@@ -27,9 +27,7 @@ form_data = {"SiteCompanyName1": None,
                 "AppRetrievalMail": None, 
                 "AppRetrievalFax": None, 
                 "AppRetrievalFaxNumber": None, 
-                "MCC-Desc": None, 
-                "signer1signature1":None,
-                "MerchantInitials1":None
+                "MCC-Desc": None
                 }
 
 # form_data = {
