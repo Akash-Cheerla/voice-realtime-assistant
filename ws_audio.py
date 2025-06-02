@@ -5,14 +5,16 @@ import os
 import tempfile
 import wave
 from fastapi import APIRouter, WebSocket
-import whisper
-from realtime_assistant import process_transcribed_text, end_triggered, form_data
-from elevenlabs.client import ElevenLabs
 from dotenv import load_dotenv
+from elevenlabs.client import ElevenLabs
+import openai
+import torch
+import whisper
+from realtime_assistant import process_transcribed_text
 
 load_dotenv()
 router = APIRouter()
-model = whisper.load_model("base")
+model = whisper.load_model("base")  # Use "tiny" for faster performance
 tts = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
 async def handle_assistant_logic(user_text):
