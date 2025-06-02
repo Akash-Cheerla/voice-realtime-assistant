@@ -43,54 +43,42 @@
       padding: 10px;
       border-radius: 10px;
     }
+    #statusLabel {
+      font-weight: bold;
+      text-align: center;
+      margin-top: 10px;
+      font-size: 16px;
+    }
+    .pulse {
+      animation: pulse 1s infinite;
+      color: #00b894;
+    }
+    @keyframes pulse {
+      0% { opacity: 1; }
+      50% { opacity: 0.5; }
+      100% { opacity: 1; }
+    }
   </style>
 </head>
 <body>
   <div id="container">
     <h1>🎙️ FRI Merchant Application Voice Assistant</h1>
     <div id="log">Initializing assistant...</div>
+    <div id="statusLabel" class="pulse">⏳ Awaiting microphone...</div>
   </div>
 
   <script>
-    let ws, audioContext, processor, input;
+    let ws;
+    let audioContext, processor, input;
     let bufferSize = 2048;
-    let lastAudioTime = Date.now();
-    const silenceThreshold = 500;
-    let hasSentEnd = false;
 
     function Float32ArrayToInt16(buffer) {
-      const l = buffer.length;
-      const buf = new Int16Array(l);
-      for (let i = 0; i < l; i++) {
+      const int16 = new Int16Array(buffer.length);
+      for (let i = 0; i < buffer.length; i++) {
         let s = Math.max(-1, Math.min(1, buffer[i]));
-        buf[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+        int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
       }
-      return buf;
-    }
-
-    function encodeInt16ToBase64(int16) {
-      const uint8 = new Uint8Array(new Int16Array(int16).buffer);
-      let binary = '';
-      for (let i = 0; i < uint8.length; i++) {
-        binary += String.fromCharCode(uint8[i]);
-      }
-      return btoa(binary);
-    }
-
-    function connectWebSocket() {
-      ws = new WebSocket("wss://" + window.location.host + "/ws/audio");
-
-      ws.onmessage = e => {
-        const msg = JSON.parse(e.data);
-        if (msg.type === "transcript") {
-          document.getElementById("log").innerHTML += `<div class='user'>👤 ${msg.text}</div>`;
-        } else if (msg.type === "assistant_reply") {
-          document.getElementById("log").innerHTML += `<div class='assistant'>🤖 ${msg.text}</div>`;
-          const audio = new Audio("data:audio/wav;base64," + msg.audio_b64);
-          audio.play();
-          hasSentEnd = false;
-        }
-      };
+      return int16;
     }
 
     async function requestMicAndStart() {
@@ -100,50 +88,103 @@
         input = audioContext.createMediaStreamSource(stream);
         processor = audioContext.createScriptProcessor(bufferSize, 1, 1);
 
+        connectWebSocket();
+
         processor.onaudioprocess = e => {
-          const now = Date.now();
-          const data = e.inputBuffer.getChannelData(0);
-          const int16 = Float32ArrayToInt16(data);
-          const hasSpeech = data.some(sample => Math.abs(sample) > 0.005);
-
-          if (hasSpeech) {
-            lastAudioTime = now;
-            const base64 = encodeInt16ToBase64(int16);
-            if (ws && ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: "audio_chunk", data: base64 }));
-              console.log("📤 audio_chunk sent");
-            }
-          }
-
-          if (!hasSentEnd && now - lastAudioTime > silenceThreshold) {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: "end_stream" }));
-              console.log("✅ end_stream sent");
-              hasSentEnd = true;
-            }
+          const raw = e.inputBuffer.getChannelData(0);
+          const int16 = Float32ArrayToInt16(raw);
+          const b64 = btoa(String.fromCharCode.apply(null, new Uint8Array(new Int16Array(int16).buffer)));
+          if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: "audio_chunk", data: b64 }));
           }
         };
 
         input.connect(processor);
         processor.connect(audioContext.destination);
 
-        connectWebSocket();
-        document.getElementById("log").innerHTML += `<div class='assistant'>🎤 Microphone access granted. Streaming audio...</div>`;
-      } catch {
-        document.getElementById("log").innerHTML += `<div class='assistant'>❌ Microphone access denied. Please enable it to continue.</div>`;
+        updateStatus("🎙️ Listening...", true);
+        logMsg("assistant", "🎤 Microphone access granted. Streaming audio...");
+      } catch (err) {
+        updateStatus("❌ Microphone permission denied", false);
+        logMsg("assistant", "❌ Please enable your mic to continue.");
       }
     }
 
+    function connectWebSocket() {
+      ws = new WebSocket("wss://" + window.location.host + "/ws/audio");
+
+      ws.onopen = () => {
+        console.log("✅ WebSocket connected");
+      };
+
+      ws.onmessage = e => {
+        const msg = JSON.parse(e.data);
+        if (msg.type === "transcript") {
+          logMsg("user", "👤 " + msg.text);
+          updateStatus("🤖 Thinking...", true);
+        }
+        else if (msg.type === "assistant_reply") {
+          logMsg("assistant", "🤖 " + msg.text);
+          if (msg.audio_b64) {
+            updateStatus("🔈 Speaking...", true);
+            const audio = new Audio("data:audio/wav;base64," + msg.audio_b64);
+            audio.play();
+            audio.onended = () => updateStatus("🎙️ Listening...", true);
+          } else {
+            updateStatus("🎙️ Listening...", true);
+          }
+        }
+        else if (msg.type === "error") {
+          logMsg("assistant", "❌ Error: " + msg.message);
+          updateStatus("⚠️ Something went wrong", false);
+        }
+      };
+    }
+
+    function updateStatus(text, pulse) {
+      const label = document.getElementById("statusLabel");
+      label.textContent = text;
+      label.className = pulse ? "pulse" : "";
+    }
+
+    function logMsg(role, text) {
+      const div = document.createElement("div");
+      div.className = role;
+      div.textContent = text;
+      document.getElementById("log").appendChild(div);
+      document.getElementById("log").scrollTop = document.getElementById("log").scrollHeight;
+    }
+
     window.onload = () => {
-      const startBtn = document.createElement("button");
-      startBtn.textContent = "▶️ Start Assistant (Grants Microphone access)";
-      startBtn.style.marginTop = "10px";
-      startBtn.onclick = () => {
-        startBtn.remove();
+      const btn = document.createElement("button");
+      btn.textContent = "▶️ Start Assistant";
+      btn.style.marginTop = "10px";
+      btn.onclick = () => {
+        btn.remove();
         requestMicAndStart();
       };
-      document.getElementById("container").appendChild(startBtn);
+      document.getElementById("container").appendChild(btn);
     };
+
+    window.onbeforeunload = () => {
+      if (ws) ws.close();
+    };
+
+    // Stop recording when silence is detected for > 1.2s (optional improvement)
+    let silenceTimeout;
+    function handleSilenceDetection() {
+      if (silenceTimeout) clearTimeout(silenceTimeout);
+      silenceTimeout = setTimeout(() => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: "end_stream" }));
+          console.log("✅ end_stream sent");
+          updateStatus("⏳ Processing...", true);
+        }
+      }, 1200);
+    }
+
+    // Attach to every process
+    setInterval(() => handleSilenceDetection(), 300);
   </script>
 </body>
 </html>

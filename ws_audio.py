@@ -65,6 +65,15 @@ async def audio_websocket(websocket: WebSocket):
                 # ✅ Resample from 48000 to 16000 using audioop
                 resampled = audioop.ratecv(audio_buffer, 2, 1, 48000, 16000, None)[0]
 
+                print("🔊 Received audio bytes:", len(audio_buffer))
+                duration_sec = len(audio_buffer) / (2 * 48000)
+                print(f"⏱️ Approx. duration: {duration_sec:.2f}s")
+
+                if len(audio_buffer) < 6400:
+                    print("⚠️ Skipping: audio too short.")
+                    audio_buffer = b""
+                    continue
+
                 with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_audio:
                     with wave.open(tmp_audio, 'wb') as wf:
                         wf.setnchannels(1)
@@ -84,6 +93,7 @@ async def audio_websocket(websocket: WebSocket):
                 }))
 
                 if not transcript:
+                    audio_buffer = b""
                     continue
 
                 assistant_text, audio_bytes = await handle_assistant_logic(transcript)
