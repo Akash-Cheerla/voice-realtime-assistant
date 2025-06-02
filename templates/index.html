@@ -43,57 +43,41 @@
       padding: 10px;
       border-radius: 10px;
     }
-    #formSection {
-      margin-top: 20px;
-      display: none;
-    }
-    label {
-      font-weight: bold;
-      display: block;
-      margin-top: 10px;
-    }
-    input {
-      width: 100%;
-      padding: 8px;
-      margin-top: 4px;
-      box-sizing: border-box;
-    }
-    button {
-      padding: 10px 20px;
-      margin-top: 20px;
-      background-color: #00b894;
-      color: white;
-      border: none;
-      border-radius: 5px;
-      cursor: pointer;
-    }
-    #statusLabel {
-      font-weight: bold;
-      text-align: center;
-      margin-top: 10px;
-    }
   </style>
 </head>
 <body>
   <div id="container">
     <h1>🎙️ FRI Merchant Application Voice Assistant</h1>
     <div id="log">Initializing assistant...</div>
-    <div id="statusLabel"></div>
-
-    <div id="formSection">
-      <h3>📝 Confirm Form Data (Testing)</h3>
-      <form id="formEditor"></form>
-      <button onclick="confirmAndGenerate()">Confirm & Generate PDF</button>
-      <a id="downloadLink" href="/download" download style="display:none; margin-left: 10px;">📄 Download Filled PDF</a>
-      <button id="resetBtn" onclick="resetConversation()" style="display:none; background-color: #636e72; margin-left: 10px;">🔁 Start Over</button>
-    </div>
-    <audio id="replyAudio" controls style="display:none"></audio>
   </div>
 
   <script>
-    let ws;
-    let audioContext, processor, input;
+    let ws, audioContext, processor, input;
     let bufferSize = 2048;
+    let lastAudioTime = Date.now();
+    const silenceThreshold = 500;
+
+    function Float32ArrayToInt16(buffer) {
+      let l = buffer.length;
+      let buf = new Int16Array(l);
+      while (l--) buf[l] = Math.min(1, buffer[l]) * 0x7FFF;
+      return buf;
+    }
+
+    function connectWebSocket() {
+      ws = new WebSocket("wss://" + window.location.host + "/ws/audio");
+
+      ws.onmessage = e => {
+        const msg = JSON.parse(e.data);
+        if (msg.type === "transcript") {
+          document.getElementById("log").innerHTML += `<div class='user'>👤 ${msg.text}</div>`;
+        } else if (msg.type === "assistant_reply") {
+          document.getElementById("log").innerHTML += `<div class='assistant'>🤖 ${msg.text}</div>`;
+          const audio = new Audio("data:audio/wav;base64," + msg.audio_b64);
+          audio.play();
+        }
+      };
+    }
 
     async function requestMicAndStart() {
       try {
@@ -103,10 +87,23 @@
         processor = audioContext.createScriptProcessor(bufferSize, 1, 1);
 
         processor.onaudioprocess = e => {
+          const now = Date.now();
           const data = e.inputBuffer.getChannelData(0);
           const int16 = Float32ArrayToInt16(data);
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: "audio_chunk", data: btoa(String.fromCharCode(...int16)) }));
+          const hasSpeech = data.some(sample => Math.abs(sample) > 0.01);
+
+          if (hasSpeech) {
+            lastAudioTime = now;
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: "audio_chunk", data: btoa(String.fromCharCode(...int16)) }));
+            }
+          }
+
+          if (now - lastAudioTime > silenceThreshold) {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(JSON.stringify({ type: "end_stream" }));
+            }
+            lastAudioTime = Infinity;
           }
         };
 
@@ -120,37 +117,6 @@
       }
     }
 
-    function Float32ArrayToInt16(buffer) {
-      let l = buffer.length;
-      let buf = new Int16Array(l);
-      while (l--) buf[l] = Math.min(1, buffer[l]) * 0x7FFF;
-      return buf;
-    }
-
-    function connectWebSocket() {
-      ws = new WebSocket("wss://" + window.location.host + "/ws/audio");
-
-      ws.onopen = () => {
-        console.log("WebSocket connected");
-      };
-
-      ws.onmessage = e => {
-        const msg = JSON.parse(e.data);
-
-        if (msg.type === "transcript") {
-          document.getElementById("log").innerHTML += `<div class='user'>👤 ${msg.text}</div>`;
-        } else if (msg.type === "assistant_reply") {
-          document.getElementById("log").innerHTML += `<div class='assistant'>🤖 ${msg.text}</div>`;
-          playAssistantAudio(msg.audio_b64);
-        }
-      };
-    }
-
-    function playAssistantAudio(b64) {
-      const audio = new Audio("data:audio/wav;base64," + b64);
-      audio.play();
-    }
-
     window.onload = () => {
       const startBtn = document.createElement("button");
       startBtn.textContent = "▶️ Start Assistant (Grants Microphone access)";
@@ -161,35 +127,6 @@
       };
       document.getElementById("container").appendChild(startBtn);
     };
-
-    async function confirmAndGenerate() {
-      const form = document.getElementById("formEditor");
-      const editedData = {};
-      for (const field of form.elements) {
-        if (field.name) editedData[field.name] = field.value;
-      }
-
-      const res = await fetch('/confirm', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirmed: true, form_data: editedData })
-      });
-
-      const result = await res.json();
-      if (result.status === 'filled') {
-        document.getElementById('downloadLink').style.display = 'inline-block';
-      } else {
-        alert("❌ PDF generation failed.");
-      }
-    }
-
-    function resetConversation() {
-      document.getElementById("log").innerHTML = "Initializing assistant...";
-      document.getElementById("formEditor").innerHTML = "";
-      document.getElementById("downloadLink").style.display = "none";
-      document.getElementById("resetBtn").style.display = "none";
-      fetch("/reset", { method: "POST" });
-    }
   </script>
 </body>
 </html>
