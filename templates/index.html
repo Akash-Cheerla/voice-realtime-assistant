@@ -59,10 +59,22 @@
     let hasSentEnd = false;
 
     function Float32ArrayToInt16(buffer) {
-      let l = buffer.length;
-      let buf = new Int16Array(l);
-      while (l--) buf[l] = Math.min(1, buffer[l]) * 0x7FFF;
+      const l = buffer.length;
+      const buf = new Int16Array(l);
+      for (let i = 0; i < l; i++) {
+        let s = Math.max(-1, Math.min(1, buffer[i]));
+        buf[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+      }
       return buf;
+    }
+
+    function encodeInt16ToBase64(int16) {
+      const uint8 = new Uint8Array(new Int16Array(int16).buffer);
+      let binary = '';
+      for (let i = 0; i < uint8.length; i++) {
+        binary += String.fromCharCode(uint8[i]);
+      }
+      return btoa(binary);
     }
 
     function connectWebSocket() {
@@ -76,7 +88,7 @@
           document.getElementById("log").innerHTML += `<div class='assistant'>🤖 ${msg.text}</div>`;
           const audio = new Audio("data:audio/wav;base64," + msg.audio_b64);
           audio.play();
-          hasSentEnd = false; // reset flag
+          hasSentEnd = false;
         }
       };
     }
@@ -92,13 +104,12 @@
           const now = Date.now();
           const data = e.inputBuffer.getChannelData(0);
           const int16 = Float32ArrayToInt16(data);
-          const hasSpeech = data.some(sample => Math.abs(sample) > 0.005); // more sensitive
+          const hasSpeech = data.some(sample => Math.abs(sample) > 0.005);
 
           if (hasSpeech) {
             lastAudioTime = now;
+            const base64 = encodeInt16ToBase64(int16);
             if (ws && ws.readyState === WebSocket.OPEN) {
-              const uint8 = new Uint8Array(new Int16Array(int16).buffer);
-              const base64 = btoa(String.fromCharCode(...uint8));
               ws.send(JSON.stringify({ type: "audio_chunk", data: base64 }));
               console.log("📤 audio_chunk sent");
             }
