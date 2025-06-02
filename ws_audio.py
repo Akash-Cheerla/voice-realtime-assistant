@@ -16,36 +16,27 @@ from realtime_assistant import process_transcribed_text, get_initial_assistant_m
 
 load_dotenv()
 router = APIRouter()
-model: Whisper = whisper.load_model("base")  # Use "tiny" for faster performance
+model: Whisper = whisper.load_model("tiny")  # Swapped to "tiny" for faster performance
 
 tts = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
-async def handle_assistant_logic(user_text):
-    assistant_text = await process_transcribed_text(user_text)
-    print("🧫 Assistant:", assistant_text)
-
+async def generate_tts(assistant_text):
     audio_reply = tts.text_to_speech.convert(
         voice_id="EXAVITQu4vr4xnSDxMaL",
         model_id="eleven_monolingual_v1",
         text=assistant_text
     )
-    audio_bytes = b"".join(audio_reply)
-    return assistant_text, audio_bytes
+    return b"".join(audio_reply)
 
 @router.websocket("/ws/audio")
 async def audio_websocket(websocket: WebSocket):
     await websocket.accept()
     audio_buffer = b""
 
-    # ⏱ Initial Assistant Greeting
     try:
+        # Initial Assistant Greeting
         initial_text = get_initial_assistant_message()
-        audio_reply = tts.text_to_speech.convert(
-            voice_id="EXAVITQu4vr4xnSDxMaL",
-            model_id="eleven_monolingual_v1",
-            text=initial_text
-        )
-        audio_bytes = b"".join(audio_reply)
+        audio_bytes = await asyncio.to_thread(generate_tts, initial_text)
         audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
 
         await websocket.send_text(json.dumps({
@@ -62,12 +53,7 @@ async def audio_websocket(websocket: WebSocket):
                 audio_buffer += base64.b64decode(data["data"])
 
             elif data["type"] == "end_stream":
-                # ✅ Resample from 48000 to 16000 using audioop
                 resampled = audioop.ratecv(audio_buffer, 2, 1, 48000, 16000, None)[0]
-
-                print("🔊 Received audio bytes:", len(audio_buffer))
-                duration_sec = len(audio_buffer) / (2 * 48000)
-                print(f"⏱️ Approx. duration: {duration_sec:.2f}s")
 
                 if len(audio_buffer) < 6400:
                     print("⚠️ Skipping: audio too short.")
@@ -82,9 +68,9 @@ async def audio_websocket(websocket: WebSocket):
                         wf.writeframes(resampled)
                     tmp_path = tmp_audio.name
 
-                result = model.transcribe(tmp_path)
-                transcript = result.get("text", "").strip()
+                result = await asyncio.to_thread(model.transcribe, tmp_path)
                 os.remove(tmp_path)
+                transcript = result.get("text", "").strip()
 
                 print("🎤 User said:", transcript)
                 await websocket.send_text(json.dumps({
@@ -96,7 +82,14 @@ async def audio_websocket(websocket: WebSocket):
                     audio_buffer = b""
                     continue
 
-                assistant_text, audio_bytes = await handle_assistant_logic(transcript)
+                # Parallel: LLM + TTS
+                assistant_task = asyncio.create_task(process_transcribed_text(transcript))
+                await asyncio.sleep(0.2)  # tiny delay so UI doesn't feel frozen
+                assistant_text = await assistant_task
+                tts_task = asyncio.create_task(asyncio.to_thread(generate_tts, assistant_text))
+
+                print("🤖 Assistant:", assistant_text)
+                audio_bytes = await tts_task
                 audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
 
                 await websocket.send_text(json.dumps({
