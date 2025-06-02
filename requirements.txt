@@ -11,6 +11,5 @@ openai==0.28.1
 python-dotenv
 ffmpeg-python
 pydub
-whisper
 torch
-git+https://github.com/openai/whisper.git
+openai-whisper
