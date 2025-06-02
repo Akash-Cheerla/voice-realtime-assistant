@@ -71,6 +71,7 @@
     let ws;
     let audioContext, processor, input;
     let bufferSize = 2048;
+    let silenceTimer;
 
     function Float32ArrayToInt16(buffer) {
       const int16 = new Int16Array(buffer.length);
@@ -96,6 +97,19 @@
           const b64 = btoa(String.fromCharCode.apply(null, new Uint8Array(new Int16Array(int16).buffer)));
           if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: "audio_chunk", data: b64 }));
+          }
+
+          // Silence detection
+          const rms = Math.sqrt(raw.reduce((sum, val) => sum + val * val, 0) / raw.length);
+          if (rms > 0.01) {
+            clearTimeout(silenceTimer);
+            silenceTimer = setTimeout(() => {
+              if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: "end_stream" }));
+                console.log("✅ end_stream sent");
+                updateStatus("⏳ Processing...", true);
+              }
+            }, 1200);
           }
         };
 
@@ -169,22 +183,6 @@
     window.onbeforeunload = () => {
       if (ws) ws.close();
     };
-
-    // Stop recording when silence is detected for > 1.2s (optional improvement)
-    let silenceTimeout;
-    function handleSilenceDetection() {
-      if (silenceTimeout) clearTimeout(silenceTimeout);
-      silenceTimeout = setTimeout(() => {
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "end_stream" }));
-          console.log("✅ end_stream sent");
-          updateStatus("⏳ Processing...", true);
-        }
-      }, 1200);
-    }
-
-    // Attach to every process
-    setInterval(() => handleSilenceDetection(), 300);
   </script>
 </body>
 </html>
