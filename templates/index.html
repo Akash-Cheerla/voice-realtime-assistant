@@ -97,7 +97,9 @@
           if (hasSpeech) {
             lastAudioTime = now;
             if (ws && ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ type: "audio_chunk", data: btoa(String.fromCharCode(...int16)) }));
+              const uint8 = new Uint8Array(new Int16Array(int16).buffer);
+              const base64 = btoa(String.fromCharCode(...uint8));
+              ws.send(JSON.stringify({ type: "audio_chunk", data: base64 }));
               console.log("📤 audio_chunk sent");
             }
           }
