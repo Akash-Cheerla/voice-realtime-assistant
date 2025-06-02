@@ -56,6 +56,7 @@
     let bufferSize = 2048;
     let lastAudioTime = Date.now();
     const silenceThreshold = 500;
+    let hasSentEnd = false;
 
     function Float32ArrayToInt16(buffer) {
       let l = buffer.length;
@@ -75,6 +76,7 @@
           document.getElementById("log").innerHTML += `<div class='assistant'>🤖 ${msg.text}</div>`;
           const audio = new Audio("data:audio/wav;base64," + msg.audio_b64);
           audio.play();
+          hasSentEnd = false; // reset flag
         }
       };
     }
@@ -90,20 +92,22 @@
           const now = Date.now();
           const data = e.inputBuffer.getChannelData(0);
           const int16 = Float32ArrayToInt16(data);
-          const hasSpeech = data.some(sample => Math.abs(sample) > 0.01);
+          const hasSpeech = data.some(sample => Math.abs(sample) > 0.005); // more sensitive
 
           if (hasSpeech) {
             lastAudioTime = now;
             if (ws && ws.readyState === WebSocket.OPEN) {
               ws.send(JSON.stringify({ type: "audio_chunk", data: btoa(String.fromCharCode(...int16)) }));
+              console.log("📤 audio_chunk sent");
             }
           }
 
-          if (now - lastAudioTime > silenceThreshold) {
+          if (!hasSentEnd && now - lastAudioTime > silenceThreshold) {
             if (ws && ws.readyState === WebSocket.OPEN) {
               ws.send(JSON.stringify({ type: "end_stream" }));
+              console.log("✅ end_stream sent");
+              hasSentEnd = true;
             }
-            lastAudioTime = Infinity;
           }
         };
 
