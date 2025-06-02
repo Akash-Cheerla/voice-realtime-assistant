@@ -10,18 +10,18 @@ from elevenlabs.client import ElevenLabs
 import openai
 import torch
 import whisper
-# from whisper import Whisper
-from realtime_assistant import process_transcribed_text
+from whisper import Whisper
+from realtime_assistant import process_transcribed_text, get_initial_assistant_message
 
 load_dotenv()
 router = APIRouter()
-model = whisper.load_model("base")  # Use "tiny" for faster performance
+model: Whisper = whisper.load_model("base")  # Use "tiny" for faster performance
 
 tts = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
 async def handle_assistant_logic(user_text):
     assistant_text = await process_transcribed_text(user_text)
-    print("🧠 Assistant:", assistant_text)
+    print("🧫 Assistant:", assistant_text)
 
     audio_reply = tts.text_to_speech.convert(
         voice_id="EXAVITQu4vr4xnSDxMaL",
@@ -36,7 +36,23 @@ async def audio_websocket(websocket: WebSocket):
     await websocket.accept()
     audio_buffer = b""
 
+    # ⏱ Initial Assistant Greeting
     try:
+        initial_text = get_initial_assistant_message()
+        audio_reply = tts.text_to_speech.convert(
+            voice_id="EXAVITQu4vr4xnSDxMaL",
+            model_id="eleven_monolingual_v1",
+            text=initial_text
+        )
+        audio_bytes = b"".join(audio_reply)
+        audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+
+        await websocket.send_text(json.dumps({
+            "type": "assistant_reply",
+            "text": initial_text,
+            "audio_b64": audio_b64
+        }))
+
         while True:
             msg = await websocket.receive_text()
             data = json.loads(msg)
