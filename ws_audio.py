@@ -4,6 +4,7 @@ import base64
 import os
 import tempfile
 import wave
+import audioop
 from fastapi import APIRouter, WebSocket
 from dotenv import load_dotenv
 from elevenlabs.client import ElevenLabs
@@ -61,12 +62,15 @@ async def audio_websocket(websocket: WebSocket):
                 audio_buffer += base64.b64decode(data["data"])
 
             elif data["type"] == "end_stream":
+                # ✅ Resample from 48000 to 16000 using audioop
+                resampled = audioop.ratecv(audio_buffer, 2, 1, 48000, 16000, None)[0]
+
                 with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_audio:
                     with wave.open(tmp_audio, 'wb') as wf:
                         wf.setnchannels(1)
                         wf.setsampwidth(2)
                         wf.setframerate(16000)
-                        wf.writeframes(audio_buffer)
+                        wf.writeframes(resampled)
                     tmp_path = tmp_audio.name
 
                 result = model.transcribe(tmp_path)
