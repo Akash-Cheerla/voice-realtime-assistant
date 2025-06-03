@@ -10,4 +10,4 @@ def is_speech(audio_bytes: bytes, sample_rate=16000) -> bool:
     audio_np = np.frombuffer(audio_bytes, np.int16).astype(np.float32) / 32768.0
     audio_tensor = torch.tensor(audio_np, dtype=torch.float32)
     timestamps = get_speech_timestamps(audio_tensor, model, sampling_rate=sample_rate)
-    return len(timestamps) >= 3  # Require at least 3 confident speech segments
+    return len(timestamps) >= 1  # Require at least 3 confident speech segments
