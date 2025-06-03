@@ -129,13 +129,13 @@ async def audio_websocket(websocket: WebSocket):
                     continue
 
                 if not assistant_text.strip():
-    print("⚠️ Empty assistant message. Skipping TTS.")
-    audio_buffer = b""
-    continue
+                    print("⚠️ Empty assistant message. Skipping TTS.")
+                    audio_buffer = b""
+                    continue
 
-print("🤖 Assistant:", assistant_text)
-tts_task = asyncio.to_thread(generate_tts, assistant_text)
-audio_bytes = await tts_task
+                print("🤖 Assistant:", assistant_text)
+                tts_task = asyncio.to_thread(generate_tts, assistant_text)
+                audio_bytes = await tts_task
                 audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
                 last_assistant_tts_time = time.time()
 
