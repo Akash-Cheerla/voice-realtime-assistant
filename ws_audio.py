@@ -6,6 +6,7 @@ import os
 import tempfile
 import wave
 import audioop
+import time
 from fastapi import APIRouter, WebSocket
 from dotenv import load_dotenv
 from elevenlabs.client import ElevenLabs
@@ -14,15 +15,16 @@ import torch
 import whisper
 from whisper import Whisper
 from realtime_assistant import process_transcribed_text, get_initial_assistant_message
-from vad import is_speech  # <-- NEW
+from vad import is_speech  # <-- Silero VAD
 
 load_dotenv()
 router = APIRouter()
-model: Whisper = whisper.load_model("base")  # Switched to "base" for better accuracy
+model: Whisper = whisper.load_model("base")
 
 tts = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
-currently_playing_audio = None  # Used for interrupting TTS
+currently_playing_audio = None
+last_assistant_tts_time = 0  # ⏱ Track when assistant last spoke
 
 def generate_tts(assistant_text):
     audio_reply = tts.text_to_speech.convert(
@@ -36,13 +38,13 @@ def generate_tts(assistant_text):
 async def audio_websocket(websocket: WebSocket):
     await websocket.accept()
     audio_buffer = b""
-    global currently_playing_audio
+    global currently_playing_audio, last_assistant_tts_time
 
     try:
-        # Initial Assistant Greeting
         initial_text = get_initial_assistant_message()
         audio_bytes = await asyncio.to_thread(generate_tts, initial_text)
         audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+        last_assistant_tts_time = time.time()
 
         await websocket.send_text(json.dumps({
             "type": "assistant_reply",
@@ -70,9 +72,14 @@ async def audio_websocket(websocket: WebSocket):
                     audio_buffer = b""
                     continue
 
-                # NEW: VAD Filtering
+                # Prevent echo transcription
+                if time.time() - last_assistant_tts_time < 1.0:
+                    print("🛑 Skipping input: spoke too soon after TTS.")
+                    audio_buffer = b""
+                    continue
+
                 if not is_speech(resampled):
-                    print("🛑 Silero VAD: No speech detected. Skipping.")
+                    print("🛑 VAD: No speech detected.")
                     audio_buffer = b""
                     continue
 
@@ -106,6 +113,7 @@ async def audio_websocket(websocket: WebSocket):
                 print("🤖 Assistant:", assistant_text)
                 audio_bytes = await tts_task
                 audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
+                last_assistant_tts_time = time.time()
 
                 async def send_reply():
                     await websocket.send_text(json.dumps({

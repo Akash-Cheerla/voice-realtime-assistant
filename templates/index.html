@@ -85,7 +85,14 @@
 
     async function requestMicAndStart() {
       try {
-        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          }
+        });
+
         audioContext = new AudioContext();
         input = audioContext.createMediaStreamSource(stream);
         processor = audioContext.createScriptProcessor(bufferSize, 1, 1);
@@ -109,7 +116,7 @@
                 console.log("✅ end_stream sent");
                 updateStatus("⏳ Processing...", true);
               }
-            }, 1200);
+            }, 1400);
           }
         };
 
@@ -141,15 +148,21 @@
           if (msg.audio_b64) {
             updateStatus("🔊 Speaking...", true);
             audioPlayer.pause();
+            audioPlayer.currentTime = 0;
             audioPlayer.src = "data:audio/wav;base64," + msg.audio_b64;
             audioPlayer.play();
-            audioPlayer.onended = () => updateStatus("🎧 Listening...", true);
+            audioPlayer.onended = () => {
+              updateStatus("🎧 Listening...", true);
+              audioPlayer.src = "";
+            };
           } else {
             updateStatus("🎧 Listening...", true);
           }
         }
         else if (msg.type === "interrupt_audio") {
           audioPlayer.pause();
+          audioPlayer.currentTime = 0;
+          audioPlayer.src = "";
         }
         else if (msg.type === "error") {
           logMsg("assistant", "❌ Error: " + msg.message);
