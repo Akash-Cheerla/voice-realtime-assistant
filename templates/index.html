@@ -18,7 +18,9 @@
       border-radius: 10px;
       box-shadow: 0 0 10px rgba(0,0,0,0.1);
     }
-    h1 { text-align: center; }
+    h1 {
+      text-align: center;
+    }
     #log {
       margin-top: 20px;
       padding: 10px;
@@ -60,7 +62,7 @@
 </head>
 <body>
   <div id="container">
-    <h1>🎙️ FRI Merchant Application Voice Assistant</h1>
+    <h1>🎧 FRI Merchant Application Voice Assistant</h1>
     <div id="log">Initializing assistant...</div>
     <div id="statusLabel" class="pulse">⏳ Awaiting microphone...</div>
   </div>
@@ -70,7 +72,7 @@
     let audioContext, processor, input;
     let bufferSize = 2048;
     let silenceTimer;
-    let currentAudio = null;
+    let audioPlayer = new Audio();
 
     function Float32ArrayToInt16(buffer) {
       const int16 = new Int16Array(buffer.length);
@@ -101,12 +103,6 @@
           const rms = Math.sqrt(raw.reduce((sum, val) => sum + val * val, 0) / raw.length);
           if (rms > 0.01) {
             clearTimeout(silenceTimer);
-            if (currentAudio) {
-              currentAudio.pause();
-              currentAudio.src = "";
-              currentAudio = null;
-              console.log("⛔️ TTS interrupted mid-play.");
-            }
             silenceTimer = setTimeout(() => {
               if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: "end_stream" }));
@@ -120,7 +116,7 @@
         input.connect(processor);
         processor.connect(audioContext.destination);
 
-        updateStatus("🎙️ Listening...", true);
+        updateStatus("🎧 Listening...", true);
         logMsg("assistant", "🎤 Microphone access granted. Streaming audio...");
       } catch (err) {
         updateStatus("❌ Microphone permission denied", false);
@@ -135,24 +131,27 @@
 
       ws.onmessage = e => {
         const msg = JSON.parse(e.data);
+
         if (msg.type === "transcript") {
           logMsg("user", "👤 " + msg.text);
-          updateStatus("🤖 Thinking...", true);
-        } else if (msg.type === "assistant_reply") {
-          logMsg("assistant", "🤖 " + msg.text);
+          updateStatus("🧠 Thinking...", true);
+        }
+        else if (msg.type === "assistant_reply") {
+          logMsg("assistant", "🧐 " + msg.text);
           if (msg.audio_b64) {
-            updateStatus("🔈 Speaking...", true);
-            if (currentAudio) {
-              currentAudio.pause();
-              currentAudio.src = "";
-            }
-            currentAudio = new Audio("data:audio/wav;base64," + msg.audio_b64);
-            currentAudio.play();
-            currentAudio.onended = () => updateStatus("🎙️ Listening...", true);
+            updateStatus("🔊 Speaking...", true);
+            audioPlayer.pause();
+            audioPlayer.src = "data:audio/wav;base64," + msg.audio_b64;
+            audioPlayer.play();
+            audioPlayer.onended = () => updateStatus("🎧 Listening...", true);
           } else {
-            updateStatus("🎙️ Listening...", true);
+            updateStatus("🎧 Listening...", true);
           }
-        } else if (msg.type === "error") {
+        }
+        else if (msg.type === "interrupt_audio") {
+          audioPlayer.pause();
+        }
+        else if (msg.type === "error") {
           logMsg("assistant", "❌ Error: " + msg.message);
           updateStatus("⚠️ Something went wrong", false);
         }
