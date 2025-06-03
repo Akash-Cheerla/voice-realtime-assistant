@@ -16,9 +16,13 @@ from realtime_assistant import process_transcribed_text, get_initial_assistant_m
 
 load_dotenv()
 router = APIRouter()
-model: Whisper = whisper.load_model("tiny")  # Fast and accurate enough for real-time
+model: Whisper = whisper.load_model("tiny")  # Swapped to "tiny" for faster performance
 
 tts = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
+
+# Global to interrupt TTS
+currently_playing_audio = None
+
 
 def generate_tts(assistant_text):
     audio_reply = tts.text_to_speech.convert(
@@ -28,13 +32,15 @@ def generate_tts(assistant_text):
     )
     return b"".join(audio_reply)
 
+
 @router.websocket("/ws/audio")
 async def audio_websocket(websocket: WebSocket):
     await websocket.accept()
     audio_buffer = b""
+    global currently_playing_audio
 
     try:
-        # Initial greeting
+        # Initial Assistant Greeting
         initial_text = get_initial_assistant_message()
         audio_bytes = await asyncio.to_thread(generate_tts, initial_text)
         audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
@@ -50,6 +56,11 @@ async def audio_websocket(websocket: WebSocket):
             data = json.loads(msg)
 
             if data["type"] == "audio_chunk":
+                # Interrupt if assistant is talking
+                if currently_playing_audio:
+                    currently_playing_audio.cancel()
+                    currently_playing_audio = None
+                    print("⛔️ Assistant TTS interrupted by user.")
                 audio_buffer += base64.b64decode(data["data"])
 
             elif data["type"] == "end_stream":
@@ -82,17 +93,26 @@ async def audio_websocket(websocket: WebSocket):
                     audio_buffer = b""
                     continue
 
-                assistant_text = await process_transcribed_text(transcript)
-                print("🤖 Assistant:", assistant_text)
+                # Parallel: LLM + TTS
+                assistant_task = asyncio.create_task(process_transcribed_text(transcript))
+                await asyncio.sleep(0.2)
+                assistant_text = await assistant_task
+                tts_task = asyncio.to_thread(generate_tts, assistant_text)
 
-                audio_bytes = await asyncio.to_thread(generate_tts, assistant_text)
+                print("🤖 Assistant:", assistant_text)
+                audio_bytes = await tts_task
                 audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
 
-                await websocket.send_text(json.dumps({
-                    "type": "assistant_reply",
-                    "text": assistant_text,
-                    "audio_b64": audio_b64
-                }))
+                async def send_reply():
+                    await websocket.send_text(json.dumps({
+                        "type": "assistant_reply",
+                        "text": assistant_text,
+                        "audio_b64": audio_b64
+                    }))
+
+                currently_playing_audio = asyncio.create_task(send_reply())
+                await currently_playing_audio
+                currently_playing_audio = None
 
                 audio_buffer = b""
 

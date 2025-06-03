@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8">
+  <meta charset="UTF-8" />
   <title>Voice Assistant</title>
   <style>
     body {
@@ -64,14 +64,14 @@
   <div id="container">
     <h1>🎙️ FRI Merchant Application Voice Assistant</h1>
     <div id="log">Initializing assistant...</div>
-    <div id="statusLabel" class="pulse"> Awaiting microphone...</div>
+    <div id="statusLabel" class="pulse">⏳ Awaiting microphone...</div>
   </div>
 
   <script>
-    let ws;
-    let audioContext, processor, input;
+    let ws, audioContext, processor, input;
     let bufferSize = 2048;
-    let silenceTimer;
+    let silenceTimeout;
+    let assistantSpeaking = false;
 
     function Float32ArrayToInt16(buffer) {
       const int16 = new Int16Array(buffer.length);
@@ -92,19 +92,19 @@
         connectWebSocket();
 
         processor.onaudioprocess = e => {
+          if (assistantSpeaking) return; // block user input while assistant is speaking
+
           const raw = e.inputBuffer.getChannelData(0);
           const int16 = Float32ArrayToInt16(raw);
-          const uint8 = new Uint8Array(int16.buffer);
-          const b64 = btoa(String.fromCharCode(...uint8));
-
+          const b64 = btoa(String.fromCharCode.apply(null, new Uint8Array(new Int16Array(int16).buffer)));
           if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: "audio_chunk", data: b64 }));
           }
 
           const rms = Math.sqrt(raw.reduce((sum, val) => sum + val * val, 0) / raw.length);
-          if (rms > 0.01) {
-            clearTimeout(silenceTimer);
-            silenceTimer = setTimeout(() => {
+          if (rms > 0.015) {
+            clearTimeout(silenceTimeout);
+            silenceTimeout = setTimeout(() => {
               if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: "end_stream" }));
                 console.log("✅ end_stream sent");
@@ -134,22 +134,25 @@
 
       ws.onmessage = e => {
         const msg = JSON.parse(e.data);
+
         if (msg.type === "transcript") {
           logMsg("user", "👤 " + msg.text);
           updateStatus("🤖 Thinking...", true);
-        }
-        else if (msg.type === "assistant_reply") {
+        } else if (msg.type === "assistant_reply") {
           logMsg("assistant", "🤖 " + msg.text);
           if (msg.audio_b64) {
+            assistantSpeaking = true;
             updateStatus("🔈 Speaking...", true);
             const audio = new Audio("data:audio/wav;base64," + msg.audio_b64);
             audio.play();
-            audio.onended = () => updateStatus("🎙️ Listening...", true);
+            audio.onended = () => {
+              assistantSpeaking = false;
+              updateStatus("🎙️ Listening...", true);
+            };
           } else {
             updateStatus("🎙️ Listening...", true);
           }
-        }
-        else if (msg.type === "error") {
+        } else if (msg.type === "error") {
           logMsg("assistant", "❌ Error: " + msg.message);
           updateStatus("⚠️ Something went wrong", false);
         }
