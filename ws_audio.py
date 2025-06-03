@@ -109,9 +109,18 @@ async def audio_websocket(websocket: WebSocket):
                     "text": transcript
                 }))
 
-                assistant_task = asyncio.create_task(process_transcribed_text(transcript))
-                await asyncio.sleep(0.2)
-                assistant_text = await assistant_task
+                try:
+                    assistant_text = await asyncio.wait_for(process_transcribed_text(transcript), timeout=10.0)
+                    if not assistant_text:
+                        raise ValueError("No assistant response.")
+                except Exception as e:
+                    print("⚠️ Assistant failed:", e)
+                    await websocket.send_text(json.dumps({
+                        "type": "assistant_reply",
+                        "text": "Sorry, I had trouble processing that. Could you please repeat?"
+                    }))
+                    audio_buffer = b""
+                    continue
 
                 if interrupted:
                     print("🔄 Skipping outdated assistant reply.")
