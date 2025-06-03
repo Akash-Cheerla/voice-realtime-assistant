@@ -1,3 +1,4 @@
+# ws_audio.py
 import asyncio
 import json
 import base64
@@ -18,7 +19,7 @@ from vad import is_speech
 
 load_dotenv()
 router = APIRouter()
-model: Whisper = whisper.load_model("base")
+model: Whisper = whisper.load_model("small")  # Upgraded model for better accuracy
 
 tts = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
@@ -69,8 +70,9 @@ async def audio_websocket(websocket: WebSocket):
                 await asyncio.sleep(0.2)
                 resampled = audioop.ratecv(audio_buffer, 2, 1, 48000, 16000, None)[0]
 
-                if len(audio_buffer) < 6400:
-                    print("⚠️ Skipping: audio too short.")
+                duration_seconds = len(resampled) / 32000
+                if duration_seconds > 8:
+                    print("🛑 Audio too long (>8s), skipping.")
                     audio_buffer = b""
                     continue
 
@@ -92,19 +94,20 @@ async def audio_websocket(websocket: WebSocket):
                         wf.writeframes(resampled)
                     tmp_path = tmp_audio.name
 
-                result = await asyncio.to_thread(model.transcribe, tmp_path)
+                result = await asyncio.to_thread(model.transcribe, tmp_path, language='en', task='transcribe')
                 os.remove(tmp_path)
                 transcript = result.get("text", "").strip()
+
+                if not transcript or len(transcript.split()) < 2 or transcript.lower().count("sí") > 8:
+                    print("🛑 Ignoring hallucinated transcript.")
+                    audio_buffer = b""
+                    continue
 
                 print("🎤 User said:", transcript)
                 await websocket.send_text(json.dumps({
                     "type": "transcript",
                     "text": transcript
                 }))
-
-                if not transcript:
-                    audio_buffer = b""
-                    continue
 
                 assistant_task = asyncio.create_task(process_transcribed_text(transcript))
                 await asyncio.sleep(0.2)
