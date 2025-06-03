@@ -21,7 +21,7 @@ model: Whisper = whisper.load_model("tiny")  # Swapped to "tiny" for faster perf
 tts = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
 async def generate_tts(assistant_text):
-    audio_reply = tts.text_to_speech.convert(
+    audio_reply = await tts.text_to_speech.convert(
         voice_id="EXAVITQu4vr4xnSDxMaL",
         model_id="eleven_monolingual_v1",
         text=assistant_text
@@ -36,7 +36,7 @@ async def audio_websocket(websocket: WebSocket):
     try:
         # Initial Assistant Greeting
         initial_text = get_initial_assistant_message()
-        audio_bytes = await asyncio.to_thread(generate_tts, initial_text)
+        audio_bytes = await generate_tts(initial_text)
         audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
 
         await websocket.send_text(json.dumps({
@@ -86,7 +86,7 @@ async def audio_websocket(websocket: WebSocket):
                 assistant_task = asyncio.create_task(process_transcribed_text(transcript))
                 await asyncio.sleep(0.2)  # tiny delay so UI doesn't feel frozen
                 assistant_text = await assistant_task
-                tts_task = asyncio.create_task(asyncio.to_thread(generate_tts, assistant_text))
+                tts_task = asyncio.create_task(generate_tts(assistant_text))
 
                 print("🤖 Assistant:", assistant_text)
                 audio_bytes = await tts_task

@@ -94,12 +94,13 @@
         processor.onaudioprocess = e => {
           const raw = e.inputBuffer.getChannelData(0);
           const int16 = Float32ArrayToInt16(raw);
-          const b64 = btoa(String.fromCharCode.apply(null, new Uint8Array(new Int16Array(int16).buffer)));
+          const uint8 = new Uint8Array(int16.buffer);
+          const b64 = btoa(String.fromCharCode(...uint8));
+
           if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: "audio_chunk", data: b64 }));
           }
 
-          // Silence detection
           const rms = Math.sqrt(raw.reduce((sum, val) => sum + val * val, 0) / raw.length);
           if (rms > 0.01) {
             clearTimeout(silenceTimer);
@@ -109,7 +110,7 @@
                 console.log("✅ end_stream sent");
                 updateStatus("⏳ Processing...", true);
               }
-            }, 1200);
+            }, 1000);
           }
         };
 
