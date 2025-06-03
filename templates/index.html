@@ -103,6 +103,12 @@
           const raw = e.inputBuffer.getChannelData(0);
           const int16 = Float32ArrayToInt16(raw);
           const b64 = btoa(String.fromCharCode.apply(null, new Uint8Array(new Int16Array(int16).buffer)));
+
+          // Cancel assistant audio hard
+          audioPlayer.pause();
+          audioPlayer.currentTime = 0;
+          audioPlayer.src = "";
+
           if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: "audio_chunk", data: b64 }));
           }
@@ -152,7 +158,7 @@
             audioPlayer.src = "data:audio/wav;base64," + msg.audio_b64;
             audioPlayer.play();
             audioPlayer.onended = () => {
-              updateStatus("🎧 Listening...", true);
+              updateStatus("🎧 Listening...");
               audioPlayer.src = "";
             };
           } else {

@@ -15,7 +15,7 @@ import torch
 import whisper
 from whisper import Whisper
 from realtime_assistant import process_transcribed_text, get_initial_assistant_message
-from vad import is_speech  # <-- Silero VAD
+from vad import is_speech
 
 load_dotenv()
 router = APIRouter()
@@ -24,7 +24,8 @@ model: Whisper = whisper.load_model("base")
 tts = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
 currently_playing_audio = None
-last_assistant_tts_time = 0  # ⏱ Track when assistant last spoke
+last_assistant_tts_time = 0
+interrupted = False  # NEW
 
 def generate_tts(assistant_text):
     audio_reply = tts.text_to_speech.convert(
@@ -38,7 +39,7 @@ def generate_tts(assistant_text):
 async def audio_websocket(websocket: WebSocket):
     await websocket.accept()
     audio_buffer = b""
-    global currently_playing_audio, last_assistant_tts_time
+    global currently_playing_audio, last_assistant_tts_time, interrupted
 
     try:
         initial_text = get_initial_assistant_message()
@@ -57,6 +58,7 @@ async def audio_websocket(websocket: WebSocket):
             data = json.loads(msg)
 
             if data["type"] == "audio_chunk":
+                interrupted = True  # Mark audio interrupted
                 if currently_playing_audio:
                     currently_playing_audio.cancel()
                     currently_playing_audio = None
@@ -65,6 +67,7 @@ async def audio_websocket(websocket: WebSocket):
                 audio_buffer += base64.b64decode(data["data"])
 
             elif data["type"] == "end_stream":
+                await asyncio.sleep(0.2)  # short debounce delay
                 resampled = audioop.ratecv(audio_buffer, 2, 1, 48000, 16000, None)[0]
 
                 if len(audio_buffer) < 6400:
@@ -72,9 +75,8 @@ async def audio_websocket(websocket: WebSocket):
                     audio_buffer = b""
                     continue
 
-                # Prevent echo transcription
                 if time.time() - last_assistant_tts_time < 1.0:
-                    print("🛑 Skipping input: spoke too soon after TTS.")
+                    print("🛑 Skipping input: too soon after TTS.")
                     audio_buffer = b""
                     continue
 
@@ -108,8 +110,15 @@ async def audio_websocket(websocket: WebSocket):
                 assistant_task = asyncio.create_task(process_transcribed_text(transcript))
                 await asyncio.sleep(0.2)
                 assistant_text = await assistant_task
-                tts_task = asyncio.to_thread(generate_tts, assistant_text)
 
+                # If user spoke again, skip reply
+                if interrupted:
+                    print("🔄 Skipping outdated assistant reply.")
+                    interrupted = False
+                    audio_buffer = b""
+                    continue
+
+                tts_task = asyncio.to_thread(generate_tts, assistant_text)
                 print("🤖 Assistant:", assistant_text)
                 audio_bytes = await tts_task
                 audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
@@ -125,7 +134,6 @@ async def audio_websocket(websocket: WebSocket):
                 currently_playing_audio = asyncio.create_task(send_reply())
                 await currently_playing_audio
                 currently_playing_audio = None
-
                 audio_buffer = b""
 
                 if "END OF CONVERSATION" in assistant_text.upper():
