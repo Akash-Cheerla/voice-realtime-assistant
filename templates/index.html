@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8" />
+  <meta charset="UTF-8">
   <title>Voice Assistant</title>
   <style>
     body {
@@ -18,9 +18,7 @@
       border-radius: 10px;
       box-shadow: 0 0 10px rgba(0,0,0,0.1);
     }
-    h1 {
-      text-align: center;
-    }
+    h1 { text-align: center; }
     #log {
       margin-top: 20px;
       padding: 10px;
@@ -68,10 +66,11 @@
   </div>
 
   <script>
-    let ws, audioContext, processor, input;
+    let ws;
+    let audioContext, processor, input;
     let bufferSize = 2048;
-    let silenceTimeout;
-    let assistantSpeaking = false;
+    let silenceTimer;
+    let currentAudio = null;
 
     function Float32ArrayToInt16(buffer) {
       const int16 = new Int16Array(buffer.length);
@@ -92,8 +91,6 @@
         connectWebSocket();
 
         processor.onaudioprocess = e => {
-          if (assistantSpeaking) return; // block user input while assistant is speaking
-
           const raw = e.inputBuffer.getChannelData(0);
           const int16 = Float32ArrayToInt16(raw);
           const b64 = btoa(String.fromCharCode.apply(null, new Uint8Array(new Int16Array(int16).buffer)));
@@ -102,15 +99,21 @@
           }
 
           const rms = Math.sqrt(raw.reduce((sum, val) => sum + val * val, 0) / raw.length);
-          if (rms > 0.015) {
-            clearTimeout(silenceTimeout);
-            silenceTimeout = setTimeout(() => {
+          if (rms > 0.01) {
+            clearTimeout(silenceTimer);
+            if (currentAudio) {
+              currentAudio.pause();
+              currentAudio.src = "";
+              currentAudio = null;
+              console.log("⛔️ TTS interrupted mid-play.");
+            }
+            silenceTimer = setTimeout(() => {
               if (ws && ws.readyState === WebSocket.OPEN) {
                 ws.send(JSON.stringify({ type: "end_stream" }));
                 console.log("✅ end_stream sent");
                 updateStatus("⏳ Processing...", true);
               }
-            }, 1000);
+            }, 1200);
           }
         };
 
@@ -128,27 +131,24 @@
     function connectWebSocket() {
       ws = new WebSocket("wss://" + window.location.host + "/ws/audio");
 
-      ws.onopen = () => {
-        console.log("✅ WebSocket connected");
-      };
+      ws.onopen = () => console.log("✅ WebSocket connected");
 
       ws.onmessage = e => {
         const msg = JSON.parse(e.data);
-
         if (msg.type === "transcript") {
           logMsg("user", "👤 " + msg.text);
           updateStatus("🤖 Thinking...", true);
         } else if (msg.type === "assistant_reply") {
           logMsg("assistant", "🤖 " + msg.text);
           if (msg.audio_b64) {
-            assistantSpeaking = true;
             updateStatus("🔈 Speaking...", true);
-            const audio = new Audio("data:audio/wav;base64," + msg.audio_b64);
-            audio.play();
-            audio.onended = () => {
-              assistantSpeaking = false;
-              updateStatus("🎙️ Listening...", true);
-            };
+            if (currentAudio) {
+              currentAudio.pause();
+              currentAudio.src = "";
+            }
+            currentAudio = new Audio("data:audio/wav;base64," + msg.audio_b64);
+            currentAudio.play();
+            currentAudio.onended = () => updateStatus("🎙️ Listening...", true);
           } else {
             updateStatus("🎙️ Listening...", true);
           }

@@ -16,11 +16,13 @@ from realtime_assistant import process_transcribed_text, get_initial_assistant_m
 
 load_dotenv()
 router = APIRouter()
-model: Whisper = whisper.load_model("tiny")  # Swapped to "tiny" for faster performance
+
+# Fast, CPU-compatible model
+model: Whisper = whisper.load_model("tiny", device="cpu")
 
 tts = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
-# Global to interrupt TTS
+# Global to allow interruption
 currently_playing_audio = None
 
 
@@ -40,7 +42,7 @@ async def audio_websocket(websocket: WebSocket):
     global currently_playing_audio
 
     try:
-        # Initial Assistant Greeting
+        # Initial Greeting
         initial_text = get_initial_assistant_message()
         audio_bytes = await asyncio.to_thread(generate_tts, initial_text)
         audio_b64 = base64.b64encode(audio_bytes).decode("utf-8")
@@ -56,7 +58,6 @@ async def audio_websocket(websocket: WebSocket):
             data = json.loads(msg)
 
             if data["type"] == "audio_chunk":
-                # Interrupt if assistant is talking
                 if currently_playing_audio:
                     currently_playing_audio.cancel()
                     currently_playing_audio = None
@@ -64,13 +65,12 @@ async def audio_websocket(websocket: WebSocket):
                 audio_buffer += base64.b64decode(data["data"])
 
             elif data["type"] == "end_stream":
-                resampled = audioop.ratecv(audio_buffer, 2, 1, 48000, 16000, None)[0]
-
                 if len(audio_buffer) < 6400:
                     print("⚠️ Skipping: audio too short.")
                     audio_buffer = b""
                     continue
 
+                resampled = audioop.ratecv(audio_buffer, 2, 1, 48000, 16000, None)[0]
                 with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp_audio:
                     with wave.open(tmp_audio, 'wb') as wf:
                         wf.setnchannels(1)
@@ -79,21 +79,27 @@ async def audio_websocket(websocket: WebSocket):
                         wf.writeframes(resampled)
                     tmp_path = tmp_audio.name
 
-                result = await asyncio.to_thread(model.transcribe, tmp_path)
+                result = await asyncio.to_thread(model.transcribe, tmp_path, fp16=False)
                 os.remove(tmp_path)
-                transcript = result.get("text", "").strip()
 
-                print("🎤 User said:", transcript)
+                transcript = result.get("text", "").strip()
+                avg_logprob = result.get("segments", [{}])[0].get("avg_logprob", -10)
+
+                print(f"🎤 Transcript: {transcript} (Confidence: {avg_logprob:.2f})")
+
+                if not transcript or avg_logprob < -1.2:
+                    await websocket.send_text(json.dumps({
+                        "type": "transcript",
+                        "text": "[Unclear or low confidence response skipped]"
+                    }))
+                    audio_buffer = b""
+                    continue
+
                 await websocket.send_text(json.dumps({
                     "type": "transcript",
                     "text": transcript
                 }))
 
-                if not transcript:
-                    audio_buffer = b""
-                    continue
-
-                # Parallel: LLM + TTS
                 assistant_task = asyncio.create_task(process_transcribed_text(transcript))
                 await asyncio.sleep(0.2)
                 assistant_text = await assistant_task
@@ -122,4 +128,7 @@ async def audio_websocket(websocket: WebSocket):
 
     except Exception as e:
         print("❌ WebSocket error:", e)
-        await websocket.send_text(json.dumps({ "type": "error", "message": str(e) }))
+        await websocket.send_text(json.dumps({
+            "type": "error",
+            "message": str(e)
+        }))
