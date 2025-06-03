@@ -1,3 +1,4 @@
+# ws_audio.py
 import asyncio
 import json
 import base64
@@ -13,16 +14,15 @@ import torch
 import whisper
 from whisper import Whisper
 from realtime_assistant import process_transcribed_text, get_initial_assistant_message
+from vad import is_speech  # <-- NEW
 
 load_dotenv()
 router = APIRouter()
-model: Whisper = whisper.load_model("tiny")  # Swapped to "tiny" for faster performance
+model: Whisper = whisper.load_model("base")  # Switched to "base" for better accuracy
 
 tts = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
-# Global to interrupt TTS
-currently_playing_audio = None
-
+currently_playing_audio = None  # Used for interrupting TTS
 
 def generate_tts(assistant_text):
     audio_reply = tts.text_to_speech.convert(
@@ -31,7 +31,6 @@ def generate_tts(assistant_text):
         text=assistant_text
     )
     return b"".join(audio_reply)
-
 
 @router.websocket("/ws/audio")
 async def audio_websocket(websocket: WebSocket):
@@ -56,7 +55,6 @@ async def audio_websocket(websocket: WebSocket):
             data = json.loads(msg)
 
             if data["type"] == "audio_chunk":
-                # Interrupt if assistant is talking
                 if currently_playing_audio:
                     currently_playing_audio.cancel()
                     currently_playing_audio = None
@@ -69,6 +67,12 @@ async def audio_websocket(websocket: WebSocket):
 
                 if len(audio_buffer) < 6400:
                     print("⚠️ Skipping: audio too short.")
+                    audio_buffer = b""
+                    continue
+
+                # NEW: VAD Filtering
+                if not is_speech(resampled):
+                    print("🛑 Silero VAD: No speech detected. Skipping.")
                     audio_buffer = b""
                     continue
 
@@ -94,7 +98,6 @@ async def audio_websocket(websocket: WebSocket):
                     audio_buffer = b""
                     continue
 
-                # Parallel: LLM + TTS
                 assistant_task = asyncio.create_task(process_transcribed_text(transcript))
                 await asyncio.sleep(0.2)
                 assistant_text = await assistant_task
