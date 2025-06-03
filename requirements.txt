@@ -14,4 +14,4 @@ pydub
 openai-whisper
 torch>=1.9.0
 numpy
-silero-vad
+torchaudio
