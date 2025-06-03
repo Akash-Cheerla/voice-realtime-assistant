@@ -104,11 +104,6 @@
           const int16 = Float32ArrayToInt16(raw);
           const b64 = btoa(String.fromCharCode.apply(null, new Uint8Array(new Int16Array(int16).buffer)));
 
-          // Cancel assistant audio hard
-          audioPlayer.pause();
-audioPlayer.currentTime = 0;
-audioPlayer.src = "";
-
           if (ws && ws.readyState === WebSocket.OPEN) {
             ws.send(JSON.stringify({ type: "audio_chunk", data: b64 }));
           }
@@ -166,7 +161,9 @@ audioPlayer.src = "";
           }
         }
         else if (msg.type === "interrupt_audio") {
-          // intentionally removed reset to preserve audio playback during user speech
+          audioPlayer.pause();
+          audioPlayer.currentTime = 0;
+          audioPlayer.src = "";
         }
         else if (msg.type === "error") {
           logMsg("assistant", "❌ Error: " + msg.message);

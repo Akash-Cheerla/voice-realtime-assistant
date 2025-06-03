@@ -1,4 +1,3 @@
-# ws_audio.py
 import asyncio
 import json
 import base64
@@ -25,7 +24,7 @@ tts = ElevenLabs(api_key=os.getenv("ELEVENLABS_API_KEY"))
 
 currently_playing_audio = None
 last_assistant_tts_time = 0
-interrupted = False  # NEW
+interrupted = False
 
 def generate_tts(assistant_text):
     audio_reply = tts.text_to_speech.convert(
@@ -58,7 +57,7 @@ async def audio_websocket(websocket: WebSocket):
             data = json.loads(msg)
 
             if data["type"] == "audio_chunk":
-                interrupted = True  # Mark audio interrupted
+                interrupted = True
                 if currently_playing_audio:
                     currently_playing_audio.cancel()
                     currently_playing_audio = None
@@ -67,7 +66,7 @@ async def audio_websocket(websocket: WebSocket):
                 audio_buffer += base64.b64decode(data["data"])
 
             elif data["type"] == "end_stream":
-                await asyncio.sleep(0.2)  # short debounce delay
+                await asyncio.sleep(0.2)
                 resampled = audioop.ratecv(audio_buffer, 2, 1, 48000, 16000, None)[0]
 
                 if len(audio_buffer) < 6400:
@@ -111,7 +110,6 @@ async def audio_websocket(websocket: WebSocket):
                 await asyncio.sleep(0.2)
                 assistant_text = await assistant_task
 
-                # If user spoke again, skip reply
                 if interrupted:
                     print("🔄 Skipping outdated assistant reply.")
                     interrupted = False
@@ -142,4 +140,7 @@ async def audio_websocket(websocket: WebSocket):
 
     except Exception as e:
         print("❌ WebSocket error:", e)
-        await websocket.send_text(json.dumps({ "type": "error", "message": str(e) }))
+        try:
+            await websocket.send_text(json.dumps({ "type": "error", "message": str(e) }))
+        except RuntimeError:
+            print("⚠️ Skipped sending error: client already disconnected.")

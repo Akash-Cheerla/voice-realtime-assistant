@@ -1,6 +1,5 @@
 # vad.py
 import torch
-import torchaudio
 import numpy as np
 
 # Load Silero VAD model and utilities from torch hub
